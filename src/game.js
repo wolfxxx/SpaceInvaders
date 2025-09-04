@@ -1,0 +1,736 @@
+// Modern Space Invaders — rebuilt compact version (gameplay restored)
+// Notes: One-file game logic to keep changes traceable. No external assets.
+
+// ---------- Lightweight SFX + Music ----------
+const Sfx = (() => {
+  let ac, musicGain, muted = false;
+  function ctx(){ ac = ac || new (window.AudioContext||window.webkitAudioContext)(); if(ac.state==='suspended') ac.resume(); return ac; }
+  function beep(f=800, d=0.08, type='square', g=0.03){ if(muted) return; try{ const a=ctx(), o=a.createOscillator(), t=a.createGain(); o.type=type; o.frequency.value=f; const t0=a.currentTime; t.gain.setValueAtTime(g,t0); t.gain.exponentialRampToValueAtTime(0.0001,t0+d); o.connect(t).connect(a.destination); o.start(t0); o.stop(t0+d); }catch(e){} }
+  function explosion(){ if(muted) return; try{ const a=ctx(); const n=a.createBufferSource(); const len=a.sampleRate*0.3|0, buf=a.createBuffer(1,len,a.sampleRate); const d=buf.getChannelData(0); for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2); n.buffer=buf; const g=a.createGain(); g.gain.value=.1; n.connect(g).connect(a.destination); n.start(); }catch(e){} }
+  function laser(){ beep(1400,0.06,'sawtooth',0.04); }
+  function playerExplosion(){ if(muted) return; try { const a = ctx(); const n = a.createBufferSource(); const len = a.sampleRate * 0.6 | 0; const buf = a.createBuffer(1, len, a.sampleRate); const d = buf.getChannelData(0); for (let i = 0; i < len; i++) { d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.5); } n.buffer = buf; const g = a.createGain(); g.gain.setValueAtTime(0.4, a.currentTime); g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + 0.6); const filter = a.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.setValueAtTime(1200, a.currentTime); filter.frequency.exponentialRampToValueAtTime(100, a.currentTime + 0.6); filter.Q.value = 1; n.connect(filter).connect(g).connect(a.destination); n.start(); const o = a.createOscillator(); const g2 = a.createGain(); o.type = 'sawtooth'; o.frequency.setValueAtTime(120, a.currentTime); o.frequency.exponentialRampToValueAtTime(40, a.currentTime + 0.3); g2.gain.setValueAtTime(0.2, a.currentTime); g2.gain.exponentialRampToValueAtTime(0.001, a.currentTime + 0.3); o.connect(g2).connect(a.destination); o.start(); o.stop(a.currentTime + 0.3); } catch(e) {} }
+  function setMuted(v){ muted=!!v; }
+  function toggle(){ muted=!muted; return muted; }
+  function isMuted(){ return muted; }
+  return { beep, explosion, laser, playerExplosion, setMuted, toggle, isMuted };
+})();
+
+// ---------- Bullet class ----------
+class Bullet extends Phaser.Physics.Arcade.Sprite{
+  constructor(scene){ super(scene,0,0,'bullet'); }
+  fire(x,y,vy,texture='bullet'){
+    this.passShieldUntil = 0;
+    // Always reset special states when (re)firing from the pool
+    this.piercing = false;
+    this.pierceHitsLeft = 0;
+    if(this.clearTint) this.clearTint();
+    this.setBlendMode(Phaser.BlendModes.NORMAL);
+    this.setScale(1);
+    if(this._pierceEmitter){ try{ this._pierceEmitter.stop(); const mgr=this._pierceEmitter.manager||this._pierceEmitter; mgr.destroy&&mgr.destroy(); }catch(e){} this._pierceEmitter=null; }
+    this.setTexture(texture);
+    if (this.body && this.body.reset) this.body.reset(x,y); else this.setPosition(x,y);
+    this.setActive(true).setVisible(true);
+    if (this.body) this.body.enable = true;
+    // Tight hitbox for reliable overlaps with fast movement
+    if (this.body && this.body.setSize) this.body.setSize(6, 18, true);
+    this.setVelocity(0,vy);
+    this.setDepth(10);
+  }
+  preUpdate(t,dt){ super.preUpdate(t,dt); if(this.y<-20 || this.y>620){ this.setActive(false).setVisible(false); if(this.body) this.body.enable=false; } }
+}
+
+// ---------- Game Scene ----------
+class GameScene extends Phaser.Scene{
+  constructor(){ super('GameScene'); }
+  preload(){
+    Music.init(this);
+    const mk=(n,draw)=>{ const g=this.make.graphics(); draw(g); g.generateTexture(n,32,32); g.destroy(); };
+    // Neon ship (nose + wings + cockpit)
+    mk('player',g=>{ g.clear(); g.fillStyle(0x39ff14); g.fillTriangle(16,2, 8,14, 24,14); g.fillStyle(0x00ff88); g.fillTriangle(8,14, 4,30, 12,30); g.fillTriangle(24,14, 20,30, 28,30); g.fillStyle(0xffff66); g.fillRect(15,10,2,6); });
+    mk('bullet',g=>{ g.fillStyle(0x00ffff); g.fillRect(14,0,4,18); });
+    mk('alien1',g=>{ g.fillStyle(0x00ffff); g.fillRect(6,8,20,16); g.fillRect(4,24,8,4); g.fillRect(20,24,8,4); });
+    mk('alien2',g=>{ g.fillStyle(0xffff66); g.fillRect(4,8,24,16); g.fillRect(0,12,4,8); g.fillRect(28,12,4,8); });
+    mk('alien3',g=>{ g.fillStyle(0x8844ff); g.fillCircle(16,16,12); g.fillRect(8,28,16,4); });
+    mk('particle',g=>{ g.fillStyle(0xffd700); g.fillRect(0,0,4,4); });
+    mk('powerup',g=>{ g.fillStyle(0x00ffff); g.fillTriangle(16,2, 2,16, 30,16); g.fillStyle(0x0088ff); g.fillTriangle(16,30, 2,16, 30,16); });
+    mk('shieldBlock',g=>{ g.fillStyle(0x00aa00); g.fillRect(0,0,12,8); });
+    mk('shieldRing',g=>{ g.lineStyle(2,0x00ffaa,1); g.strokeCircle(16,16,14); });
+    mk('boss',g=>{ g.fillStyle(0x222222); g.fillRect(0,0,32,16); g.fillStyle(0xff4444); g.fillRect(2,2,28,12); g.fillStyle(0xffff00); g.fillRect(8,6,16,4); });
+    mk('bossBullet',g=>{ g.fillStyle(0xffaa00); g.fillCircle(16,16,6); });
+    mk('pierceBullet',g=>{ g.clear(); g.fillStyle(0x000000,0); g.fillRect(0,0,32,32); g.lineStyle(3,0xff66ff,1); g.strokeCircle(16,12,8); g.fillStyle(0xffb3ff,1); g.fillCircle(16,12,4); g.lineStyle(1,0xffffff,0.6); g.strokeCircle(16,12,12); });
+  }
+
+  create(){
+    this.isGameOver = false;
+    this.isRestarting = false;
+    // Begin with countdown gate active to prevent any early movement
+    this.isCountingDown = true;
+    this.physics.world.setBoundsCollision(true,true,true,true);
+    try { this.physics.world.resume(); } catch(e) {}
+    // Help Arcade overlap detection for fast bullets
+    try { this.physics.world.OVERLAP_BIAS = 8; } catch(e) {}
+
+    // Player & input
+    this.player=this.physics.add.sprite(400,550,'player').setCollideWorldBounds(true);
+    // Ensure no velocity before countdown finishes
+    try{ this.player.setVelocity(0,0); }catch(e){}
+    this.cursors=this.input.keyboard.createCursorKeys();
+    this.keySpace=this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    this.keyP=this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.P);
+    this.keyP.on('down',()=>this.togglePause());
+    this.keyM=this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.M);
+    this.keyM.on('down',()=>this.updateMuteText(Sfx.toggle()));
+
+    // Groups
+    this.playerBullets=this.physics.add.group({ classType: Bullet, runChildUpdate:true, maxSize:-1 });
+    this.alienBullets=this.physics.add.group({ classType: Bullet, runChildUpdate:true, maxSize:120 });
+    this.powerups=this.physics.add.group();
+    this.shields=this.physics.add.staticGroup();
+
+    // HUD
+    const f={ fontFamily:'monospace', fontSize:'18px', color:'#fff' };
+    this.score=0; this.lives=3; this.level=1; this.combo=0; this.comboMult=1;
+    // High score persistence
+    try{ this.highScore=parseInt(localStorage.getItem('si_highscore')||'0',10)||0; }catch(e){ this.highScore=0; }
+    this.scoreText=this.add.text(16,12,'Score: 0',f);
+    this.livesText=this.add.text(680,12,'Lives: 3',f);
+    this.levelText=this.add.text(400,12,'Level: 1',{...f}).setOrigin(0.5,0);
+    // High score shown under level
+    this.highText=this.add.text(400,32,'Best: '+this.highScore,{...f,fontSize:'16px',color:'#bbb'}).setOrigin(0.5,0);
+    // Combo HUD near score
+    this.comboText=this.add.text(16,34,'', {...f, fontSize:'16px', color:'#0ff'});
+    this.infoText=this.add.text(400,300,'',{...f,fontSize:'28px'}).setOrigin(0.5);
+    this.muteText=this.add.text(780,12,'',f).setOrigin(1,0).setAlpha(0.8);
+    // Piercing ready HUD tag (shown during boss only)
+    this.pierceReadyText=this.add.text(16,52,'', {...f, fontSize:'16px', color:'#ff66ff'});
+    this.updateMuteText(Sfx.isMuted());
+
+    // Visuals
+    this.createShields();
+    // Player shield visual
+    this.shieldSprite=this.add.image(this.player.x,this.player.y,'shieldRing').setVisible(false).setDepth(3);
+    this.initStars();
+
+    // Start wave or boss + countdown
+    if(this.level%3===0) this.createBoss(); else this.createAlienGrid();
+    this.startLevelCountdown();
+
+    // Colliders (built after entities exist)
+    this.time.delayedCall(0,()=>this.setupColliders());
+
+    // Volume control
+    const volumeSlider = document.getElementById('volume');
+    if (volumeSlider) {
+      volumeSlider.addEventListener('input', (event) => {
+        // Halved mapping: midpoint (50) now equals prior half volume
+        const volume = parseFloat(event.target.value) / 3200;
+        Music.setVolume(volume);
+      });
+      // Set initial volume using halved mapping
+      Music.setVolume(parseFloat(volumeSlider.value) / 3200);
+    }
+  }
+
+  // ---------- Stars ----------
+  initStars(){
+    const add=(tint,speed,lifespan,qty)=> this.add.particles(0,0,'particle',{
+      x:{min:0,max:800}, y:0, lifespan, speedY:{min:speed*0.6,max:speed}, scale:{start:0.6,end:0}, alpha:{start:0.3,end:0}, quantity:qty, tint, blendMode:'ADD' });
+    this.starFar=add(0x99ffff,18,6000,2);
+    this.starMid=add(0x55ffff,40,4500,2);
+    this.starNear=add(0x11ffff,90,3200,2);
+  }
+
+  // ---------- Waves ----------
+  createAlienGrid(){
+    this.aliens=this.physics.add.group();
+    const rows=Math.min(4+Math.floor((this.level-1)/2),6), cols=10, x0=100, y0=80;
+    const types=['alien1','alien2','alien3'];
+    for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+      const t=types[r%types.length]; const a=this.aliens.create(x0+c*60, y0+r*50, t); a.setImmovable(true); a.type=t; a.health=(t==='alien3'?2:1);
+    }
+    this.aliensTotal=rows*cols; this.alienDir=1; this.alienTimer=0; this.alienMoveDelay=Math.max(200,1000-(this.level-1)*100);
+    this.alienShootTimer=this.time.now+800; this.isBossFight=false;
+    this.time.delayedCall(0,()=>this.setupColliders());
+  }
+
+  // ---------- Boss ----------
+  createBoss(){
+    this.isBossFight=true;
+    this.boss=this.physics.add.sprite(400,140,'boss').setImmovable(true).setDepth(5);
+    this.boss.setScale(4,3); if(this.boss.body&&this.boss.body.setSize) this.boss.body.setSize(120,70,true);
+    this.bossHp=Math.floor(60*(1+(this.level-1)*0.25)); this.bossMaxHp=this.bossHp;
+    // Core movement params
+    this.bossHomeY = 140; // ensure defined to avoid NaN Y
+    this.bossMinX=60; this.bossMaxX=740; this.bossSpeedX=110; this.bossMoveDir=1; this.bossStartAt=this.time.now; this.bossPhase=0; this.bossBulletSpeedBase=260; this.bossFireScale=1.0;
+    // Dash system (occasional speed bursts without teleporting)
+    this._bossDashing = false;
+    this.bossDashMult = 2.1; // speed multiplier during dash
+    this.bossDashUntil = 0;
+    this.bossNextDashAt = this.time.now + Phaser.Math.Between(2200, 5200);
+    this.bossHealth=this.add.graphics(); this.updateBossHealthBar();
+    // Overcharge (piercing) meter for boss fights
+    this.bossCharge=0; this.bossChargeMax=12; this.pierceReady=false;
+    this.bossChargeBar=this.add.graphics(); this.updateBossChargeBar();
+    this.bossHit=this.add.rectangle(this.boss.x,this.boss.y,120,70,0x00ff00,0); this.physics.add.existing(this.bossHit,true);
+    this.bossIsEnraged = false;
+    this.bossEnrageTimer = 0;
+    this.time.delayedCall(0,()=>this.setupColliders());
+    // Retarget + watchdog timers
+    this.bossNextRetargetAt = this.time.now + Phaser.Math.Between(3000, 6000);
+    this.lastBossX = this.boss.x; this.lastBossXCheckAt = this.time.now + 900;
+    // Dash visual emitter (follows boss; enabled only during dashes)
+    this.bossDashEmitter = this.add.particles(0,0,'particle', {
+      follow: this.boss,
+      speed: { min: -80, max: 80 },
+      angle: { min: 80, max: 100 },
+      lifespan: 420,
+      scale: { start: 1.2, end: 0 },
+      alpha: { start: 0.7, end: 0 },
+      frequency: 45,
+      quantity: 3,
+      tint: 0xfff3a0,
+      blendMode: 'ADD',
+      emitting: false
+    });
+  }
+
+  updateBossHealthBar(){ if(!this.bossHealth) return; const g=this.bossHealth; g.clear(); const x=100,y=70,w=600,h=10; g.fillStyle(0x222222,0.6).fillRect(x,y,w,h); const pct=this.bossMaxHp>0?this.bossHp/this.bossMaxHp:0; g.fillStyle(0xff5555,1).fillRect(x+1,y+1,Math.floor((w-2)*pct),h-2); g.lineStyle(1,0xffffff,0.6).strokeRect(x,y,w,h); }
+
+  updateBossChargeBar(){
+    if(!this.bossChargeBar) return;
+    const g=this.bossChargeBar; g.clear();
+    const x=100, y=86, w=600, h=6;
+    g.fillStyle(0x111111,0.6).fillRect(x,y,w,h);
+    const pct=this.bossChargeMax>0?Phaser.Math.Clamp((this.bossCharge||0)/this.bossChargeMax,0,1):0;
+    const color = this.pierceReady ? 0xff66ff : 0x9b59ff;
+    g.fillStyle(color,1).fillRect(x+1,y+1,Math.floor((w-2)*pct),h-2);
+    g.lineStyle(1,0xffffff,0.4).strokeRect(x,y,w,h);
+    if(this.pierceReadyText){ this.pierceReadyText.setText(this.pierceReady && this.isBossFight ? 'PIERCE READY' : ''); }
+  }
+
+  // ---------- Shields ----------
+  createShields(){
+    this.shields.clear(true,true);
+    const bases=[160,400,640];
+    bases.forEach(bx=>{ for(let r=0;r<4;r++) for(let c=0;c<8;c++){ if(r===3&&(c<2||c>5)) continue; const x=bx+(c-4)*14, y=500+r*10; const block=this.shields.create(x,y,'shieldBlock'); block.hp=2; }});
+  }
+
+  // ---------- Level flow ----------
+  // (removed duplicate simple startLevelCountdown; consolidated below)
+  
+  // More defensive countdown: store end time and auto-resume if needed
+  startLevelCountdown(){
+    // Only manage the visible label; gating derives from it in update()
+    const seq = [[0,`Level ${this.level}`],[700,'3'],[1400,'2'],[2100,'1'],[2800,'GO!']];
+    seq.forEach(([delay,label])=> this.time.delayedCall(delay,()=>{
+      this.infoText.setText(label);
+      Sfx.beep(800+delay/10,0.06,'square',0.03);
+    }));
+    this.time.delayedCall(3200,()=>{ 
+      this.infoText.setText('');
+      if(this.level%3===0) {
+        Music.play(this, 'boss', 0.25);
+      } else {
+        Music.play(this, this.level % 2 === 0 ? 'level2' : 'level1', 0.25);
+      }
+    });
+  }
+
+  beginNextLevel(){
+    // Do not pause physics; gating is handled by countdown label in update()
+    this.isStartingLevel=false; 
+    try{ this.physics.world.resume(); }catch(e){}
+    this.infoText.setText('Level Complete!');
+    // Immediately make the player safe and clear stray bullets during transition
+    this.inLevelTransition = true;
+    this.playerInvincibleUntil = Math.max(this.playerInvincibleUntil||0, this.time.now + 4000);
+    this.clearBullets && this.clearBullets();
+    Music.stop();
+    this.time.delayedCall(1000,()=>{
+      this.resetForNextLevel();
+      this.level++; this.levelText.setText('Level: '+this.level);
+      if(this.level%3===0) {
+        this.createBoss(); 
+      } else {
+        this.createAlienGrid();
+      }
+      // Ensure colliders are re-established for new groups
+      this.time.delayedCall(0,()=>this.setupColliders());
+      this.startLevelCountdown();
+      // End transition shortly after countdown completes
+      this.time.delayedCall(3300,()=>{ this.inLevelTransition=false; });
+    });
+  }
+
+  // Clear transient objects and state before building the next level
+  resetForNextLevel(){
+    // Clear bullets (player + alien)
+    this.clearBullets && this.clearBullets();
+    // Remove any remaining powerups
+    if(this.powerups){ this.powerups.children.each(p=>{ if(p&&p.destroy) p.destroy(); }); }
+    // Hide/clear shield visuals + powerup timers
+    if(this.shieldSprite) this.shieldSprite.setVisible(false);
+    this.doubleUntil=0; this.spreadUntil=0; this.rapidUntil=0; this.shieldUntil=0; this.shieldHits=0;
+    // Reset firing cadence
+    this.lastFired=0;
+    // Remove old boss artifacts if any
+    try{ if(this.bossHit){ this.bossHit.destroy(); this.bossHit=null; } }catch(e){}
+    try{ if(this.bossHealth){ this.bossHealth.clear(); } }catch(e){}
+    try{ if(this.bossChargeBar){ this.bossChargeBar.clear(); } }catch(e){}
+    this.pierceReady=false; this.bossCharge=0;
+    try{ if(this.bossDashEmitter){ this.bossDashEmitter.stop&&this.bossDashEmitter.stop(); const mgr=this.bossDashEmitter.manager||this.bossDashEmitter; mgr.destroy&&mgr.destroy(); this.bossDashEmitter=null; } }catch(e){}
+    try{ if(this._bossAfterTimer){ this._bossAfterTimer.remove(false); this._bossAfterTimer=null; } }catch(e){}
+    // Destroy old colliders so new groups can register cleanly
+    if(this._colliders){ this._colliders.forEach(c=>{ try{ c.destroy(); }catch(e){} }); this._colliders=[]; }
+    // Reset combo between levels
+    this.resetCombo();
+  }
+
+  // ---------- Colliders ----------
+  setupColliders(){ try{
+    this.physics.add.overlap(this.playerBullets, this.shields, this.hitShield, null, this);
+    this.physics.add.overlap(this.alienBullets, this.shields, this.hitShield, null, this);
+    if(this.aliens) this.physics.add.overlap(this.playerBullets, this.aliens, this.hitAlien, null, this);
+    if(this.bossHit) this.physics.add.overlap(this.playerBullets, this.bossHit, this.hitBoss, null, this);
+    this.physics.add.overlap(this.alienBullets, this.player, this.hitPlayer, null, this);
+    this.physics.add.overlap(this.powerups, this.player, this.collectPowerup, null, this);
+  }catch(e){} }
+
+  // ---------- Update ----------
+  update(time, delta){
+    const now = this.time.now;
+    // Derive countdown state strictly from the on-screen label
+    try{
+      const label = (this.infoText && this.infoText.text) || '';
+      const counting = (label==='3' || label==='2' || label==='1' || (label && label.startsWith('Level ')));
+      if (this.isCountingDown !== counting){
+        this.isCountingDown = counting;
+        // When countdown just ended, seed enemy timers if needed
+        if (!this.isCountingDown){
+          if (this.isBossFight){ const base=Phaser.Math.Between(800,1100); this.bossFireTimer = now + Math.max(300, Math.floor(base*(this.bossFireScale||1))); }
+          else { this.alienShootTimer = now + 800; }
+        }
+      }
+    }catch(e){}
+    // Simple gate: do nothing while counting down
+    if(this.isGameOver || this.isRestarting || this.isCountingDown){ this.player.setVelocity(0,0); return; }
+    // Expire combo if timer ran out
+    if((this.combo||0)>0 && now>(this.comboExpireAt||0)) this.resetCombo();
+    // Player input
+    const left=this.cursors.left.isDown, right=this.cursors.right.isDown, fire=this.keySpace.isDown;
+    this.player.setVelocityX( (left&&!right)?-300 : (right&&!left)?300 : 0 );
+    // Keep shield sprite aligned
+    if(this.shieldSprite) this.shieldSprite.setPosition(this.player.x,this.player.y).setVisible((this.shieldHits||0)>0 && (this.time.now<(this.shieldUntil||0)));
+    // Firing with power-ups
+    const rapid = this.time.now < (this.rapidUntil||0);
+    const dbl   = this.time.now < (this.doubleUntil||0);
+    const spread= this.time.now < (this.spreadUntil||0);
+    const fireDelay = rapid ? 120 : 250;
+    if(fire && time > (this.lastFired||0)){
+      let fired=0; const baseY=this.player.y-22; const used=[];
+      let applyPierce = this.isBossFight && !!this.pierceReady; let pierceUsed=false;
+      const tryApplyPierce=(b)=>{
+        if(!b || pierceUsed || !applyPierce) return;
+        b.piercing=true; b.pierceHitsLeft=1;
+        // Visuals: distinct texture, glow trail, additive blend, slightly larger
+        if(b.setTexture) b.setTexture('pierceBullet');
+        b.setBlendMode(Phaser.BlendModes.ADD);
+        b.setScale(1.25);
+        // Magenta trail that follows the bullet
+        try{ if(b._pierceEmitter){ b._pierceEmitter.stop(); const mgr=b._pierceEmitter.manager||b._pierceEmitter; mgr.destroy&&mgr.destroy(); }
+          b._pierceEmitter = this.add.particles(0,0,'particle', {
+            follow: b,
+            speed: { min: 40, max: 120 },
+            angle: { min: 240, max: 300 },
+            lifespan: 260,
+            scale: { start: 1.1, end: 0 },
+            alpha: { start: 0.9, end: 0 },
+            frequency: 18,
+            quantity: 2,
+            tint: 0xff66ff,
+            blendMode: 'ADD'
+          });
+        }catch(e){}
+        pierceUsed=true; this.pierceReady=false; this.bossCharge=0; this.updateBossChargeBar();
+        this.infoPopup(this.player.x, this.player.y-34, 'PIERCE!', '#ff66ff');
+        Sfx.beep(1300,0.05,'sawtooth',0.03);
+      };
+      // Base shots
+      if(dbl){
+        // Always attempt to fire both muzzles; ensure two distinct instances
+        const pair=this.twoFreshBullets(used);
+        if(pair.length>=2){
+          let [L,R]=pair; if(L===R){ R=this.playerBullets.create(0,0,'bullet'); }
+          L.fire(this.player.x-18, baseY, -620, 'bullet'); L.owner='player'; L.passShieldUntil=this.time.now+300;
+          R.fire(this.player.x+18, baseY, -620, 'bullet'); R.owner='player'; R.passShieldUntil=this.time.now+300;
+          // Apply pierce to the first available muzzle
+          tryApplyPierce(L); tryApplyPierce(R);
+          fired+=2;
+        } else if(pair.length===1){
+          const b=pair[0];
+          // Fallback: alternate single muzzle if pool somehow constrained
+          this._muzzleRightFirst=!this._muzzleRightFirst; const x=this._muzzleRightFirst?this.player.x+18:this.player.x-18;
+          b.fire(x, baseY, -620, 'bullet'); b.owner='player'; b.passShieldUntil=this.time.now+300; tryApplyPierce(b); fired++;
+        }
+      } else {
+        const b=this.allocBulletUnique(used); if(b){ b.fire(this.player.x, baseY, -600, 'bullet'); b.owner='player'; b.passShieldUntil=this.time.now+300; tryApplyPierce(b); fired++; }
+      }
+      // Spread pair (ensure two distinct bullets like double-shot)
+      if(spread){
+        const pair = this.twoFreshBullets(used);
+        if(pair.length>=2){
+          let [l2,r2]=pair;
+          if(l2===r2){ r2=this.playerBullets.create(0,0,'bullet'); }
+          l2.fire(this.player.x-16, baseY+4, -600,'bullet'); l2.owner='player'; l2.setVelocityX(-200); l2.passShieldUntil=this.time.now+450;
+          r2.fire(this.player.x+16, baseY+4, -600,'bullet'); r2.owner='player'; r2.setVelocityX(200);  r2.passShieldUntil=this.time.now+450;
+          tryApplyPierce(l2); tryApplyPierce(r2);
+          fired+=2;
+        } else if(pair.length===1){
+          // Fallback: alternate which angled side gets the single slot
+          this._spreadRightFirst = !this._spreadRightFirst;
+          const b = pair[0];
+          const xoff = this._spreadRightFirst ? 16 : -16;
+          const vx   = this._spreadRightFirst ? 200 : -200;
+          b.fire(this.player.x + xoff, baseY+4, -600,'bullet'); b.owner='player'; b.setVelocityX(vx); b.passShieldUntil=this.time.now+450; tryApplyPierce(b); fired++;
+        }
+      }
+      if(fired>0){ Sfx.beep(900,0.06,'square',0.03); this.lastFired = time + fireDelay; }
+    }
+
+    // Aliens movement + shooting when not boss
+    if(!this.isBossFight && this.aliens && this.aliens.countActive(true)>0){
+      this.alienTimer+=delta; const alive=this.aliens.countActive(true), total=this.aliensTotal||alive; const speedFactor=Phaser.Math.Linear(1,0.4,1-(alive/total)); const targetDelay=Math.max(120,this.alienMoveDelay*speedFactor); if(this.alienTimer>=targetDelay){ this.alienTimer=0; let hitEdge=false; this.aliens.getChildren().forEach(a=>{ if(!a.active) return; a.x+=10*this.alienDir; if(a.x>=770||a.x<=30) hitEdge=true; }); if(hitEdge){ this.alienDir*=-1; this.aliens.getChildren().forEach(a=>{ if(a.active) a.y+=20; if(a.y>520) this.gameOver('Invaders reached the base!'); }); } }
+      if(time>(this.alienShootTimer||0)){ const active=this.aliens.getChildren().filter(a=>a.active); if(active.length){ const src=Phaser.Utils.Array.GetRandom(active); const b=this.alienBullets.get(); if(b){ b.fire(src.x,src.y+20,300,'bossBullet'); b.owner='alien'; } const base=Phaser.Math.Clamp(1200-(this.level-1)*100,400,1200); const mult=Phaser.Math.Linear(1,0.6,1-(active.length/(this.aliensTotal||active.length))); this.alienShootTimer=time+Math.max(220,Math.floor(base*mult)); } }
+    }
+
+    // Boss logic
+    if(this.isBossFight && this.boss && this.boss.active){
+      // Ramp with time
+      const elapsed=time-(this.bossStartAt||time); if(this.bossPhase<1&&elapsed>=20000){ this.bossPhase=1; this.bossSpeedX=Math.min(this.bossSpeedX*1.3,170); this.bossFireScale=0.8; }
+      if(this.bossPhase<2&&elapsed>=35000){ this.bossPhase=2; this.bossSpeedX=Math.min(this.bossSpeedX*1.15,190); this.bossBulletSpeedBase=300; this.bossFireScale=0.7; if(!this.bossEnrageTimer) this.bossEnrageTimer = time + 8000; }
+
+      // Enrage cycling
+      if(this.bossPhase>=2 && this.bossEnrageTimer && time > this.bossEnrageTimer){
+        this.bossIsEnraged = !this.bossIsEnraged;
+        if(this.bossIsEnraged){
+          this.bossEnrageTimer = time + 5000; // 5s enrage
+          if(this.boss && this.boss.setTint) this.boss.setTint(0xffaaaa);
+        } else {
+          this.bossEnrageTimer = time + 8000; // 8s cooldown
+          if(this.boss && this.boss.clearTint) this.boss.clearTint();
+        }
+      }
+      // Horizontal sweep
+      if(!Number.isFinite(this.bossHomeY)) this.bossHomeY = this.boss.y;
+      this.boss.y = this.bossHomeY + Math.sin(time*0.004)*18;
+      // Dash handling: occasional bursts that increase speed smoothly for a short time
+      if(!this._bossDashing && time >= (this.bossNextDashAt||0)){
+        this._bossDashing = true;
+        this.bossDashUntil = time + Phaser.Math.Between(450, 800);
+        this.bossNextDashAt = time + Phaser.Math.Between(2800, 5600);
+        // Subtle cue
+        Sfx.beep(1100, 0.03, 'triangle', 0.025);
+      }
+      if(this._bossDashing && time > this.bossDashUntil){
+        this._bossDashing = false;
+      }
+      const dashMul = this._bossDashing ? this.bossDashMult : 1.0;
+      this.boss.x += (this.bossSpeedX*dashMul*(delta/1000))*this.bossMoveDir;
+      if(this.boss.x>=this.bossMaxX){ this.boss.x=this.bossMaxX; this.bossMoveDir=-1; }
+      if(this.boss.x<=this.bossMinX){ this.boss.x=this.bossMinX; this.bossMoveDir=1; }
+      // Ensure visible/active
+      if(!this.boss.visible) this.boss.setVisible(true);
+      if(!this.boss.active) this.boss.setActive(true);
+      if(this.bossHit){ this.bossHit.setPosition(this.boss.x,this.boss.y); if(this.bossHit.body&&this.bossHit.body.updateFromGameObject) this.bossHit.body.updateFromGameObject(); }
+      // Fire
+      if(time>(this.bossFireTimer||0)){
+        const pattern=(Math.floor(time/2000)%2);
+        if(pattern===0){ for(let i=-1;i<=1;i++){ const b=this.alienBullets.get(); if(!b) continue; const vy=(this.bossBulletSpeedBase||280)+Math.abs(i)*40; b.fire(this.boss.x+i*12,this.boss.y+40,vy,'bossBullet'); b.owner='alien'; } const base=Phaser.Math.Between(800,1100); this.bossFireTimer=time+Math.max(300,Math.floor(base*(this.bossFireScale||1))); }
+        else { for(let i=-2;i<=2;i++){ const b=this.alienBullets.get(); if(!b) continue; const vy=(this.bossBulletSpeedBase||300); b.fire(this.boss.x,this.boss.y+40,vy,'bossBullet'); b.owner='alien'; b.setVelocityX(i*120); } const base=Phaser.Math.Between(1000,1300); this.bossFireTimer=time+Math.max(350,Math.floor(base*(this.bossFireScale||1))); }
+        if(this.bossIsEnraged){ for(let k=-3;k<=3;k++){ const b2=this.alienBullets.get(); if(!b2) continue; b2.fire(this.boss.x,this.boss.y+36,(this.bossBulletSpeedBase||320)+Phaser.Math.Between(0,60),'bossBullet'); b2.owner='alien'; b2.setVelocityX(k*80+Phaser.Math.Between(-20,20)); } }
+      }
+      // Random mode retarget: wide vs narrow sweep bands
+      if(!this.bossNextRetargetAt) this.bossNextRetargetAt = time + 3500;
+      if(time >= this.bossNextRetargetAt){
+        // Pick a mode, but build a band that always includes the current X to avoid jumps
+        this.bossMoveMode = (Math.random() < 0.5) ? 'narrow' : 'wide';
+        const narrow = this.bossMoveMode === 'narrow';
+        let w = narrow ? Phaser.Math.Between(180, 260) : Phaser.Math.Between(480, 660);
+        // Center near current position, with a small random offset
+        let center = this.boss.x + Phaser.Math.Between(-60, 60);
+        center = Phaser.Math.Clamp(center, 60 + w/2, 740 - w/2);
+        this.bossMinX = Math.floor(center - w/2);
+        this.bossMaxX = Math.ceil(center + w/2);
+        const baseSpeed = narrow ? Phaser.Math.Between(120, 180) : Phaser.Math.Between(90, 150);
+        this.bossSpeedX = Math.min(baseSpeed * (1 + this.bossPhase * 0.12), 240);
+        // Maintain direction; only flip if sitting very close to an edge
+        if (Math.abs(this.boss.x - this.bossMinX) < 2) this.bossMoveDir = 1;
+        else if (Math.abs(this.boss.x - this.bossMaxX) < 2) this.bossMoveDir = -1;
+        this.bossNextRetargetAt = time + Phaser.Math.Between(2500, 6000);
+      }
+      // Stuck watchdog
+      if(!this.lastBossXCheckAt) { this.lastBossXCheckAt = time + 900; this.lastBossX = this.boss.x; }
+      if(time >= this.lastBossXCheckAt){
+        const moved = Math.abs(this.boss.x - this.lastBossX);
+        this.lastBossX = this.boss.x; this.lastBossXCheckAt = time + 900;
+        if(moved < 4){
+          // Flip direction and rebuild a band centered on current X to ensure continuity
+          this.bossMoveDir *= -1;
+          this.bossMoveMode = (Math.random()<0.5)?'narrow':'wide';
+          const narrow = this.bossMoveMode==='narrow';
+          let w = narrow ? Phaser.Math.Between(180, 260) : Phaser.Math.Between(480, 660);
+          let center = Phaser.Math.Clamp(this.boss.x, 60 + w/2, 740 - w/2);
+          this.bossMinX = Math.floor(center - w/2);
+          this.bossMaxX = Math.ceil(center + w/2);
+          this.bossSpeedX = narrow ? Phaser.Math.Between(120, 180) : Phaser.Math.Between(100, 160);
+          this.bossNextRetargetAt = time + Phaser.Math.Between(1800, 3500);
+        }
+      }
+    }
+  }
+
+  // ---------- Bullet allocation helpers (ensure unique instances) ----------
+  allocBullet(){ let b=this.playerBullets.get(); if(!b){ b=this.playerBullets.create(0,0,'bullet'); } return b; }
+  allocBulletUnique(used){ const seen=new Set(used); let tries=0; let b=this.allocBullet(); while(b && seen.has(b) && tries<4){ b=this.playerBullets.get(); if(!b) b=this.playerBullets.create(0,0,'bullet'); tries++; } if(b) used.push(b); return b; }
+  allocBulletsUnique(n, used){ const arr=[]; for(let i=0;i<n;i++){ const b=this.allocBulletUnique(used); if(!b) break; arr.push(b); } return arr; }
+
+  twoFreshBullets(used){
+    const res=this.allocBulletsUnique(2, used);
+    if(res.length===2) return res;
+    const uniq=new Set(res);
+    while(res.length<2){ const nb=this.playerBullets.create(0,0,'bullet'); if(!nb || uniq.has(nb)) break; uniq.add(nb); used.push(nb); res.push(nb); }
+    return res;
+  }
+
+  // ---------- Hit handlers ----------
+  hitAlien(bullet, alien){
+    if(!bullet.active||!alien.active) return;
+    if(bullet.disableBody) bullet.disableBody(true,true);
+    bullet.setActive(false).setVisible(false);
+    // Damage and feedback
+    alien.health=(alien.health||1)-1;
+    if(alien.health>0){
+      alien.setTint(0xff6666);
+      this.infoPopup(alien.x, alien.y-10, 'HIT', '#ffaaaa');
+      this.time.delayedCall(120,()=>alien.clearTint());
+      return;
+    }
+    // Kill
+    alien.disableBody(true,true);
+    // Combo bump then score with multiplier
+    const prevMult=this.comboMult;
+    this.bumpCombo();
+    const base=10; const pts=base*this.comboMult;
+    this.addScore(pts, alien.x, alien.y-12, '#ffee88');
+    if(this.comboMult>prevMult){ this.infoPopup(alien.x, alien.y-28, 'x'+this.comboMult, '#ffdd55'); }
+    const p=this.add.particles(alien.x,alien.y,'particle',{speed:{min:-100,max:100}, lifespan:400, scale:{start:1,end:0}, emitting:false, blendMode:'ADD'}); p.explode(20);
+    Sfx.explosion();
+    if(Math.random()<0.14) this.dropPowerup(alien.x, alien.y);
+    if(this.aliens.countActive(true)===0) this.beginNextLevel();
+  }
+  
+  // Drop power-ups sometimes
+  dropPowerup(x,y){ const tRand=Math.random(); let type='double'; if(tRand<0.25) type='spread'; else if(tRand<0.5) type='rapid'; else if(tRand<0.65) type='shield'; const p=this.powerups.create(x,y,'powerup'); p.setVelocity(0, Phaser.Math.Between(120,160)); p.setBounce(0.3).setCollideWorldBounds(true); p.setData('type', type); const tintMap={double:0x00ffff, spread:0xffaa00, rapid:0xff00ff, shield:0x00ffaa}; p.setTint(tintMap[type]||0xffffff); }
+
+  hitPlayer(player, bullet){ bullet.setActive(false).setVisible(false); if(this.time.now<(this.playerInvincibleUntil||0)) return; // shield absorbs
+    // Ignore all hits during countdowns/level transitions/gameover
+    if(this.isCountingDown || this.inLevelTransition || this.isGameOver || this.isRestarting) return;
+    if((this.shieldHits||0)>0 && this.time.now < (this.shieldUntil||0)){ this.shieldHits--; const burst=this.add.particles(player.x,player.y,'particle',{speed:{min:-120,max:120},lifespan:300,scale:{start:1,end:0},emitting:false,blendMode:'ADD'}); burst.explode(18); Sfx.beep(500,0.08,'triangle',0.03); this.playerInvincibleUntil=this.time.now+300; if(this.shieldHits<=0 && this.shieldSprite) this.shieldSprite.setVisible(false); return; }
+    // Real hit: reset combo
+    this.resetCombo();
+    this.lives--; this.livesText.setText('Lives: '+this.lives); const p=this.add.particles(player.x,player.y,'particle',{speed:200, lifespan:600, scale:{start:1.4,end:0}, emitting:false, blendMode:'ADD'}); p.explode(30); Sfx.playerExplosion(); if(this.lives>0){ player.disableBody(true,true); this.time.delayedCall(900,()=>{ player.enableBody(true,400,550,true,true); this.playerInvincibleUntil=this.time.now+1500; player.setAlpha(0.35);             this.tweens.add({targets:player, alpha:{from:0.35,to:1}, yoyo:true, duration:120, repeat:10, onComplete:()=>{ player.setAlpha(1.0); }}); }); } else this.gameOver('You have been defeated!'); }
+
+  hitShield(bullet, block){ if(!block||!block.active) return; if(bullet.owner==='player' && bullet.passShieldUntil && this.time.now<bullet.passShieldUntil) return; if(bullet.disableBody) bullet.disableBody(true,true); bullet.setActive(false).setVisible(false); block.hp=(block.hp||1)-1; if(block.hp<=0) block.destroy(); else { block.setTint(0x00ffff); this.time.delayedCall(80,()=>block.clearTint()); } }
+
+  hitBoss(objA, objB){
+    const bullet=(objA&&objA.owner==='player')?objA : (objB&&objB.owner==='player')?objB : null;
+    if(!bullet||!this.boss||!this.boss.active) return;
+    // Cooldown per bullet to avoid multi-hits in a single overlap streak
+    const now=this.time.now;
+    if(bullet._lastBossHitAt && (now - bullet._lastBossHitAt) < 120) return;
+    bullet._lastBossHitAt = now;
+    if(!bullet.piercing){ if(bullet.disableBody) bullet.disableBody(true,true); bullet.setActive(false).setVisible(false);} 
+    const dmg=bullet.piercing?10:1;
+    this.bossHp=Math.max(0,this.bossHp-dmg);
+    this.updateBossHealthBar();
+    // Build overcharge only from normal hits
+    if(!bullet.piercing) this.addBossCharge(1);
+    // If piercing, consume its remaining hit(s)
+    if(bullet.piercing){
+      // Impact VFX and camera punch
+      try{ this.cameras.main.shake(120, 0.01); this.cameras.main.flash(120, 255, 102, 255); }catch(e){}
+      const burst=this.add.particles(this.boss.x, this.boss.y, 'particle', {speed:{min:-220,max:220}, lifespan:500, scale:{start:2.2,end:0}, alpha:{start:1,end:0}, quantity:40, emitting:false, blendMode:'ADD', tint:0xff66ff});
+      burst.explode(40);
+      bullet.pierceHitsLeft = (bullet.pierceHitsLeft||1)-1;
+      if(bullet._pierceEmitter){ try{ bullet._pierceEmitter.stop(); const mgr=bullet._pierceEmitter.manager||bullet._pierceEmitter; mgr.destroy&&mgr.destroy(); }catch(e){} bullet._pierceEmitter=null; }
+      if(bullet.disableBody) bullet.disableBody(true,true); bullet.setActive(false).setVisible(false);
+    }
+    // Boss hit cue (slightly more present)
+    if (bullet.piercing) {
+      Sfx.beep(1400, 0.06, 'triangle', 0.035);
+      this.time.delayedCall(40, () => Sfx.beep(900, 0.04, 'triangle', 0.02));
+    } else {
+      Sfx.beep(820, 0.045, 'triangle', 0.03);
+      this.time.delayedCall(35, () => Sfx.beep(1000, 0.03, 'triangle', 0.02));
+    }
+    if(this.boss.setTint){ this.boss.setTint(0xff8888); this.time.delayedCall(80,()=>{ if(this.boss&&this.boss.active) this.boss.clearTint(); }); }
+    if(this.bossHp<=0) this.killBoss();
+  }
+
+  killBoss(){
+    if(!this.boss || !this.boss.active) return;
+    this.boss.disableBody(true, true);
+    const centerX = this.boss.x;
+    const centerY = this.boss.y;
+    // Award extra life with a clear celebration
+    this.awardExtraLife();
+    this.time.delayedCall(0, () => { Sfx.explosion(); this.add.particles(centerX, centerY, 'particle', {speed: 200, lifespan: 800, scale: {start: 2, end: 0}, emitting: false, blendMode: 'ADD'}).explode(40); });
+    this.time.delayedCall(300, () => { Sfx.explosion(); this.add.particles(centerX + 40, centerY - 20, 'particle', {speed: 200, lifespan: 800, scale: {start: 1.8, end: 0}, emitting: false, blendMode: 'ADD'}).explode(30); });
+    this.time.delayedCall(600, () => { Sfx.explosion(); this.add.particles(centerX - 40, centerY + 20, 'particle', {speed: 200, lifespan: 800, scale: {start: 1.8, end: 0}, emitting: false, blendMode: 'ADD'}).explode(30); });
+    this.time.delayedCall(900, () => { Sfx.playerExplosion(); this.add.particles(centerX, centerY, 'particle', {speed: 300, lifespan: 1000, scale: {start: 2.5, end: 0}, emitting: false, blendMode: 'ADD'}).explode(50); });
+    if(this.bossHealth) this.bossHealth.clear();
+    if(this.bossChargeBar) this.bossChargeBar.clear();
+    this.pierceReady=false; this.bossCharge=0; this.updateBossChargeBar&&this.updateBossChargeBar();
+    if(this.bossDashEmitter) this.bossDashEmitter.stop();
+    this.time.delayedCall(2500, () => { this.beginNextLevel(); });
+  }
+
+  // Celebration + award for extra life on boss defeat
+  awardExtraLife(){
+    this.lives = (this.lives||0) + 1;
+    if(this.livesText) this.livesText.setText('Lives: '+this.lives);
+    // Centerpiece text
+    const w=this.scale.width, h=this.scale.height;
+    const txt=this.add.text(w/2, h/2, 'EXTRA LIFE!', {fontFamily:'monospace', fontSize:'44px', color:'#00ffaa'}).setOrigin(0.5).setDepth(50);
+    this.tweens.add({ targets: txt, scale: {from:0.7,to:1.15}, alpha:{from:0,to:1}, duration:380, ease:'Sine.Out', yoyo:true, onComplete:()=>{
+      this.tweens.add({ targets: txt, alpha:0, duration:520, delay:300, onComplete:()=>txt.destroy()});
+    }});
+    // Confetti burst
+    try{
+      const colors=[0x00ffaa,0x66ffcc,0xffffff,0x99ffee];
+      const p=this.add.particles(w/2, h/2, 'particle', { speed:{min:-320,max:320}, angle:{min:0,max:360}, lifespan:900, scale:{start:2.1,end:0}, quantity:80, emitting:false, blendMode:'ADD', tint: colors });
+      p.explode(80);
+    }catch(e){}
+    // Camera flash and cheerful beeps
+    try{ this.cameras.main.flash(160, 0, 255, 170); }catch(e){}
+    Sfx.beep(900,0.06,'triangle',0.03); this.time.delayedCall(70,()=>Sfx.beep(1100,0.06,'triangle',0.03)); this.time.delayedCall(140,()=>Sfx.beep(1300,0.06,'triangle',0.03));
+    // Brief slow-motion to let the moment land (approx ~2s real time)
+    this.applySlowmo && this.applySlowmo(0.35, 700);
+  }
+
+  // ---------- Utility: temporary global slow-motion ----------
+  applySlowmo(factor=0.4, durationMs=600){
+    try{
+      this._prevTimeScale = this.time.timeScale || 1;
+      this._prevPhysTimeScale = (this.physics&&this.physics.world&&this.physics.world.timeScale)||1;
+      this._prevTweenTimeScale = (this.tweens&&this.tweens.timeScale)||1;
+      this._prevAnimTimeScale = (this.anims&&this.anims.globalTimeScale)||1;
+      if(this.time) this.time.timeScale = factor;
+      if(this.physics&&this.physics.world) this.physics.world.timeScale = factor;
+      if(this.tweens) this.tweens.timeScale = factor;
+      if(this.anims) this.anims.globalTimeScale = factor;
+      this.time.delayedCall(durationMs, ()=>{
+        try{ if(this.time) this.time.timeScale = this._prevTimeScale||1; }catch(e){}
+        try{ if(this.physics&&this.physics.world) this.physics.world.timeScale = this._prevPhysTimeScale||1; }catch(e){}
+        try{ if(this.tweens) this.tweens.timeScale = this._prevTweenTimeScale||1; }catch(e){}
+        try{ if(this.anims) this.anims.globalTimeScale = this._prevAnimTimeScale||1; }catch(e){}
+      });
+    }catch(e){}
+  }
+
+  collectPowerup(player,p){
+    const t=p.getData('type')||'double';
+    const x=player.x, y=player.y-28;
+    p.destroy();
+    if(t==='double'){
+      this.doubleUntil=Math.max(this.doubleUntil||0,this.time.now+8000);
+      this.infoPopup(x,y,'DOUBLE SHOT','#00ffff');
+    } else if(t==='spread'){
+      this.spreadUntil=Math.max(this.spreadUntil||0,this.time.now+8000);
+      this.infoPopup(x,y,'SPREAD SHOT','#ffaa00');
+    } else if(t==='rapid'){
+      this.rapidUntil=Math.max(this.rapidUntil||0,this.time.now+8000);
+      this.infoPopup(x,y,'RAPID FIRE','#ff00ff');
+    } else if(t==='shield'){
+      this.shieldUntil=this.time.now+10000; this.shieldHits=1;
+      this.infoPopup(x,y,'SHIELD','#00ffaa');
+    }
+    Sfx.beep(1000,0.06,'square',0.03);
+  }
+
+  infoPopup(x,y,text,color='#0ff'){
+    const t=this.add.text(x,y,text,{fontFamily:'monospace',fontSize:'16px',color}).setOrigin(0.5);
+    this.tweens.add({targets:t,y:y-28,alpha:0,duration:700,onComplete:()=>t.destroy()});
+  }
+
+  // ---------- Game over / Restart ----------
+  gameOver(message){
+    if(this.isGameOver) return; this.isGameOver=true; this.player.disableBody(true,true);
+    const wasHigh=this.maybeUpdateHighScore();
+    const summary = wasHigh ? 'New High Score! '+this.score : 'Score: '+this.score+'  Best: '+this.highScore;
+    this.infoText.setText(message+'\n'+summary+'\nClick to Restart');
+    this.input.once('pointerdown',()=>this.restartGame()); Music.stop();
+  }
+  restartGame(){ if(this.isRestarting) return; this.isRestarting=true; try{ if(this.bossHit) this.bossHit.destroy(); }catch(e){} try{ if(this.bossHealth) this.bossHealth.destroy(); }catch(e){} try{ if(this.bossDashEmitter){ this.bossDashEmitter.stop&&this.bossDashEmitter.stop(); const mgr=this.bossDashEmitter.manager||this.bossDashEmitter; mgr.destroy&&mgr.destroy(); this.bossDashEmitter=null; } }catch(e){} this.scene.start('StartScene'); }
+  // Quick afterimage sprite for boss dashes
+  spawnBossAfterimage(){ if(!this.boss || !this.boss.active) return; const img=this.add.image(this.boss.x,this.boss.y,'boss').setScale(4,3).setAlpha(0.35).setDepth(4).setTint(0xfff3a0); this.tweens.add({ targets: img, alpha: 0, duration: 200, onComplete: ()=> img.destroy() }); }
+
+  togglePause(){ this.isPaused=!this.isPaused; if(this.isPaused){ this.physics.world.pause(); this.infoText.setText('Paused'); } else { this.physics.world.resume(); this.infoText.setText(''); } }
+  updateMuteText(m){ this.muteText.setText(m?'MUTED':''); }
+
+  // ---------- Scoring / Combo / High score helpers ----------
+  clearBullets(){
+    try{
+      const clean=(b)=>{ if(!b) return; if(b._pierceEmitter){ try{ b._pierceEmitter.stop(); const mgr=b._pierceEmitter.manager||b._pierceEmitter; mgr.destroy&&mgr.destroy(); }catch(e){} b._pierceEmitter=null; } if(b.disableBody) b.disableBody(true,true); b.setActive(false).setVisible(false); };
+      if(this.playerBullets){ this.playerBullets.children.each(b=>clean(b)); }
+      if(this.alienBullets){ this.alienBullets.children.each(b=>clean(b)); }
+    }catch(e){}
+  }
+  addBossCharge(amount){
+    if(!this.isBossFight || this.pierceReady) return;
+    this.bossCharge = Math.min(this.bossChargeMax, (this.bossCharge||0) + (amount||0));
+    if(this.bossCharge >= this.bossChargeMax){
+      this.pierceReady = true;
+      this.updateBossChargeBar();
+      this.infoPopup(this.player.x, this.player.y-40, 'OVERCHARGED', '#ff66ff');
+      Sfx.beep(1200,0.06,'square',0.035);
+    } else {
+      this.updateBossChargeBar();
+    }
+  }
+  addScore(points, x, y, color){
+    this.score += points;
+    this.scoreText.setText('Score: '+this.score);
+    if(typeof x==='number' && typeof y==='number'){
+      this.infoPopup(x,y,'+'+points, color||'#ffee88');
+    }
+    this.maybeUpdateHighScore();
+  }
+  maybeUpdateHighScore(){
+    if(this.score>(this.highScore||0)){
+      this.highScore=this.score;
+      if(this.highText) this.highText.setText('Best: '+this.highScore);
+      try{ localStorage.setItem('si_highscore', String(this.highScore)); }catch(e){}
+      return true;
+    }
+    return false;
+  }
+  bumpCombo(){
+    const now=this.time.now;
+    if(now <= (this.comboExpireAt||0)) this.combo++; else this.combo=1;
+    const prev=this.comboMult||1;
+    // Mult increases every 4 kills: 1,1,1,1,2,2,2,2,3..., cap 5
+    this.comboMult=Math.min(5, 1+Math.floor((this.combo-1)/4));
+    this.comboExpireAt = now + 2500;
+    if(this.comboText){ const t=this.comboMult>1?('COMBO x'+this.comboMult):''; this.comboText.setText(t); }
+    return this.comboMult>prev;
+  }
+  resetCombo(){ this.combo=0; this.comboMult=1; this.comboExpireAt=0; if(this.comboText) this.comboText.setText(''); }
+}
+
+// ---------- Start Scene ----------
+class StartScene extends Phaser.Scene{ constructor(){ super('StartScene'); } create(){ const w=this.scale.width,h=this.scale.height; const t={fontFamily:'monospace', color:'#fff'}; this.add.text(w/2,h/2-120,'SPACE INVADERS',{...t,fontSize:'52px',color:'#0ff'}).setOrigin(0.5); this.add.text(w/2,h/2-70,'Modern Phaser Edition',{...t,fontSize:'18px',color:'#ccc'}).setOrigin(0.5); const best=(()=>{ try{ return parseInt(localStorage.getItem('si_highscore')||'0',10)||0; }catch(e){ return 0; } })(); this.add.text(w/2,h/2-30,'Best: '+best,{...t,fontSize:'18px',color:'#bbb'}).setOrigin(0.5); this.add.text(w/2,h/2+10,'Press SPACE or TAP to start',{...t,fontSize:'18px'}).setOrigin(0.5); this.add.text(w/2,h/2+40,'Controls: <- -> move, Space fire, P pause, M mute',{...t,fontSize:'16px',color:'#bbb'}).setOrigin(0.5); this.input.keyboard.once('keydown-SPACE',()=>this.scene.start('GameScene')); this.input.once('pointerdown',()=>this.scene.start('GameScene')); } }
+
+// ---------- Phaser Boot ----------
+const config={ type:Phaser.AUTO, width:800, height:600, backgroundColor:'#000', physics:{ default:'arcade', arcade:{ gravity:{y:0}, debug:false } }, pixelArt:true, scale:{ mode:Phaser.Scale.FIT, autoCenter:Phaser.Scale.CENTER_BOTH }, scene:[StartScene, GameScene] };
+new Phaser.Game(config);

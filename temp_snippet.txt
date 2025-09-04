@@ -1,0 +1,100 @@
+                this.chargeBar.visible = false;
+                // Cooldown ring
+                this.cooldownRing = this.add.graphics().setDepth(10);
+                this.cooldownRing.visible = false;
+
+                // Mute indicator
+                this.muteText = this.add.text(780, 16, '', fontStyle).setOrigin(1, 0).setAlpha(0.7);
+                this.updateMuteText(Sfx.isMuted());
+                this.updateMusicText(Sfx.Music.isPlaying());
+
+                // Pause (P) and Mute (M) keys
+                this.keyP = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.P);
+                this.keyP.on('down', () => this.togglePause());
+                this.keyM = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.M);
+                this.keyM.on('down', () => this.updateMuteText(Sfx.toggle()));
+                // Music toggle (B)
+                this.keyB = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.B);
+                this.keyB.on('down', () => this.toggleMusic());
+                // Alt fire key (CTRL)
+                this.keyCTRL = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.CTRL);
+                // Music toggle (B)
+                this.keyB = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.B);
+                this.keyB.on('down', () => this.toggleMusic());
+                // FX toggle (V)
+                this.keyV = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.V);
+                this.keyV.on('down', () => this.toggleFx());
+
+                // Shields
+                this.createShields();
+
+                // Powerups group
+                this.powerups = this.physics.add.group();
+
+                // Aura emitter created by initEmitters()
+
+                // Create the grid of aliens or a boss and start countdown
+                if ((this.level % 3) === 0) {
+                    this.createBoss();
+                } else {
+                    this.createAlienGrid();
+                }
+                this.startLevelCountdown();
+
+                // Collision detection
+                this.physics.add.overlap(this.alienBullets, this.player, this.hitPlayer, null, this);
+                this.physics.add.overlap(this.playerBullets, this.shields, this.hitShield, null, this);
+                this.physics.add.overlap(this.alienBullets, this.shields, this.hitShield, null, this);
+                this.physics.add.overlap(this.powerups, this.player, this.collectPowerup, null, this);
+
+                // Touch controls (mobile)
+                const dev = this.sys.game.device;
+                const isTouch = (dev && dev.input && dev.input.touch) || ('ontouchstart' in window);
+                if (isTouch) this.enableTouchControls();
+
+                // Boot music on first interaction (required by browsers)
+                this.input.once('pointerdown', () => { if (!Sfx.Music.isPlaying()) { Sfx.Music.start('calm'); this.updateMusicText(true); } });
+                this.input.keyboard.once('keydown', () => { if (!Sfx.Music.isPlaying()) { Sfx.Music.start('calm'); this.updateMusicText(true); } });
+
+                // Shield visual (follows player)
+                this.shieldSprite = this.add.image(this.player.x, this.player.y, 'shield').setVisible(false);
+            }
+
+            update(time, delta) {
+                if (this.isPaused || this.isStartingLevel) {
+                    return;
+                }
+                if (this.player.active) {
+                    this.handlePlayerInput(time);
+                    this.handleAltFire(time);
+                    // Update shield follow
+                    if (this.shieldSprite) {
+                        this.shieldSprite.setPosition(this.player.x, this.player.y);
+                        this.shieldSprite.setVisible(this.shieldHits > 0 && this.time.now < this.shieldUntil);
+                    }
+                    // Keep charge bar anchored above player while charging
+                    if (this.charging && this.chargeBar) {
+                        this.updateChargeUI(Math.min(1, (time - this.ctrlDownAt) / this.beamChargeMs));
+                    }
+                    // Update cooldown ring when cooling down
+                    if (this.cooldownRing && this.player) {
+                        if (time < this.ctrlCooldownUntil) {
+                            const frac = 1 - (this.ctrlCooldownUntil - time) / this.beamCooldownMs;
+                            this.updateCooldownRing(frac);
+                        } else if (!this.charging) {
+                            this.cooldownRing.clear();
+                            this.cooldownRing.visible = false;
+                        }
+                    }
+                }
+
+                if (this.isBossFight) {
+                    this.updateBoss(time, delta);
+                } else if (this.aliens && this.aliens.countActive(true) > 0) {
+                    this.moveAliens(delta);
+                    this.checkAlienFire(time);
+                }
+
+                // Combo decay
+                if (this.combo > 0 && (time - this.lastKillTime) > this.comboDecayMs) {
+                    this.combo = 0;

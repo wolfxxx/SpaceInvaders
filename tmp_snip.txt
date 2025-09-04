@@ -1,0 +1,20 @@
+                if (this.bossHp <= 0) { this.killBoss(); return; }
+                // Gentle vertical bobbing to vary movement
+                this.boss.y = this.bossHomeY + Math.sin(time * 0.004) * 18;
+                // Horizontal movement handled by tween; no manual increment
+                // Clamp and bounce – prevents drifting off-screen due to large deltas
+                const minX = 40, maxX = 760;
+                if (this.boss.x > maxX) { this.boss.x = maxX; }
+                if (this.boss.x < minX) { this.boss.x = minX; }
+                // Occasionally retarget the tween to reduce predictability
+                if (!this.bossNextRetargetAt) this.bossNextRetargetAt = time + 3500;
+                if (time >= this.bossNextRetargetAt) {
+                    const to = Phaser.Math.Between(80, 720);
+                    const dur = Phaser.Math.Between(1600, 2600);
+                    if (this.bossTween) { this.bossTween.stop(); this.bossTween = null; }
+                    this.bossTween = this.tweens.add({ targets: this.boss, x: { to }, duration: dur, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+                    this.bossNextRetargetAt = time + Phaser.Math.Between(3500, 6000);
+                }
+                // Enforce visibility and draw order (defensive)
+                if (!this.boss.visible) this.boss.setVisible(true);
+                if (this.boss.alpha !== 1) this.boss.setAlpha(1);

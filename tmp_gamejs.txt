@@ -1,0 +1,401 @@
+// Modern Space Invaders — rebuilt compact version (gameplay restored)
+// Notes: One-file game logic to keep changes traceable. No external assets.
+
+// ---------- Lightweight SFX + Music ----------
+const Sfx = (() => {
+  let ac, musicGain, muted = false;
+  function ctx(){ ac = ac || new (window.AudioContext||window.webkitAudioContext)(); if(ac.state==='suspended') ac.resume(); return ac; }
+  function beep(f=800, d=0.08, type='square', g=0.03){ if(muted) return; try{ const a=ctx(), o=a.createOscillator(), t=a.createGain(); o.type=type; o.frequency.value=f; const t0=a.currentTime; t.gain.setValueAtTime(g,t0); t.gain.exponentialRampToValueAtTime(0.0001,t0+d); o.connect(t).connect(a.destination); o.start(t0); o.stop(t0+d); }catch(e){} }
+  function explosion(){ if(muted) return; try{ const a=ctx(); const n=a.createBufferSource(); const len=a.sampleRate*0.3|0, buf=a.createBuffer(1,len,a.sampleRate); const d=buf.getChannelData(0); for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2); n.buffer=buf; const g=a.createGain(); g.gain.value=.1; n.connect(g).connect(a.destination); n.start(); }catch(e){} }
+  function laser(){ beep(1400,0.06,'sawtooth',0.04); }
+  function setMuted(v){ muted=!!v; }
+  function toggle(){ muted=!muted; return muted; }
+  function isMuted(){ return muted; }
+  const Music = (()=>{ let playing=false, baseGain=0.25; function start(){ if(playing||muted) return; const a=ctx(); musicGain=musicGain||a.createGain(); musicGain.gain.value=baseGain; musicGain.connect(a.destination); // simple arpeggio
+    let t=a.currentTime+0.1; const seq=[0,4,7,12,7,4]; const root=220; function note(freq,dt){ const o=a.createOscillator(), g=a.createGain(); o.type='triangle'; o.frequency.setValueAtTime(freq,t); g.gain.setValueAtTime(.03,t); g.gain.exponentialRampToValueAtTime(0.0001,t+dt); o.connect(g).connect(musicGain); o.start(t); o.stop(t+dt+0.01); t+=dt*1.05; }
+    playing=true; (function loop(){ if(!playing) return; for(let i=0;i<seq.length;i++) note(root*Math.pow(2,seq[i]/12),0.18); setTimeout(loop, 1200); })(); }
+    function stop(){ playing=false; if(musicGain) musicGain.gain.value=0; }
+    function isPlaying(){ return playing; }
+    return { start, stop, isPlaying };
+  })();
+  return { beep, explosion, laser, setMuted, toggle, isMuted, Music };
+})();
+
+// ---------- Bullet class ----------
+class Bullet extends Phaser.Physics.Arcade.Sprite{
+  constructor(scene){ super(scene,0,0,'bullet'); }
+  fire(x,y,vy,texture='bullet'){
+    this.setTexture(texture);
+    if (this.body && this.body.reset) this.body.reset(x,y); else this.setPosition(x,y);
+    this.setActive(true).setVisible(true);
+    if (this.body) this.body.enable = true;
+    // Tight hitbox for reliable overlaps with fast movement
+    if (this.body && this.body.setSize) this.body.setSize(6, 18, true);
+    this.setVelocity(0,vy);
+    this.setDepth(10);
+  }
+  preUpdate(t,dt){ super.preUpdate(t,dt); if(this.y<-20 || this.y>620){ this.setActive(false).setVisible(false); if(this.body) this.body.enable=false; } }
+}
+
+// ---------- Game Scene ----------
+class GameScene extends Phaser.Scene{
+  constructor(){ super('GameScene'); }
+  preload(){
+    const mk=(n,draw)=>{ const g=this.make.graphics(); draw(g); g.generateTexture(n,32,32); g.destroy(); };
+    // Neon ship (nose + wings + cockpit)
+    mk('player',g=>{ g.clear(); g.fillStyle(0x39ff14); g.fillTriangle(16,2, 8,14, 24,14); g.fillStyle(0x00ff88); g.fillTriangle(8,14, 4,30, 12,30); g.fillTriangle(24,14, 20,30, 28,30); g.fillStyle(0xffff66); g.fillRect(15,10,2,6); });
+    mk('bullet',g=>{ g.fillStyle(0x00ffff); g.fillRect(14,0,4,18); });
+    mk('alien1',g=>{ g.fillStyle(0x00ffff); g.fillRect(6,8,20,16); g.fillRect(4,24,8,4); g.fillRect(20,24,8,4); });
+    mk('alien2',g=>{ g.fillStyle(0xffff66); g.fillRect(4,8,24,16); g.fillRect(0,12,4,8); g.fillRect(28,12,4,8); });
+    mk('alien3',g=>{ g.fillStyle(0x8844ff); g.fillCircle(16,16,12); g.fillRect(8,28,16,4); });
+    mk('particle',g=>{ g.fillStyle(0xffd700); g.fillRect(0,0,4,4); });
+    mk('powerup',g=>{ g.fillStyle(0x00ffff); g.fillTriangle(16,2, 2,16, 30,16); g.fillStyle(0x0088ff); g.fillTriangle(16,30, 2,16, 30,16); });
+    mk('shieldBlock',g=>{ g.fillStyle(0x00aa00); g.fillRect(0,0,12,8); });
+    mk('shieldRing',g=>{ g.lineStyle(2,0x00ffaa,1); g.strokeCircle(16,16,14); });
+    mk('boss',g=>{ g.fillStyle(0x222222); g.fillRect(0,0,32,16); g.fillStyle(0xff4444); g.fillRect(2,2,28,12); g.fillStyle(0xffff00); g.fillRect(8,6,16,4); });
+    mk('bossBullet',g=>{ g.fillStyle(0xffaa00); g.fillCircle(16,16,6); });
+  }
+
+  create(){
+    this.physics.world.setBoundsCollision(true,true,true,true);
+    try { this.physics.world.resume(); } catch(e) {}
+    // Help Arcade overlap detection for fast bullets
+    try { this.physics.world.OVERLAP_BIAS = 8; } catch(e) {}
+
+    // Player & input
+    this.player=this.physics.add.sprite(400,550,'player').setCollideWorldBounds(true);
+    this.cursors=this.input.keyboard.createCursorKeys();
+    this.keySpace=this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    this.keyP=this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.P);
+    this.keyP.on('down',()=>this.togglePause());
+    this.keyM=this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.M);
+    this.keyM.on('down',()=>this.updateMuteText(Sfx.toggle()));
+
+    // Groups
+    this.playerBullets=this.physics.add.group({ classType: Bullet, runChildUpdate:true, maxSize:-1 });
+    this.alienBullets=this.physics.add.group({ classType: Bullet, runChildUpdate:true, maxSize:120 });
+    this.powerups=this.physics.add.group();
+    this.shields=this.physics.add.staticGroup();
+
+    // HUD
+    const f={ fontFamily:'monospace', fontSize:'18px', color:'#fff' };
+    this.score=0; this.lives=3; this.level=1; this.combo=0; this.comboMult=1;
+    this.scoreText=this.add.text(16,12,'Score: 0',f);
+    this.livesText=this.add.text(680,12,'Lives: 3',f);
+    this.levelText=this.add.text(400,12,'Level: 1',{...f}).setOrigin(0.5,0);
+    this.infoText=this.add.text(400,300,'',{...f,fontSize:'28px'}).setOrigin(0.5);
+    this.muteText=this.add.text(780,12,'',f).setOrigin(1,0).setAlpha(0.8);
+    this.updateMuteText(Sfx.isMuted());
+
+    // Visuals
+    this.createShields();
+    // Player shield visual
+    this.shieldSprite=this.add.image(this.player.x,this.player.y,'shieldRing').setVisible(false).setDepth(3);
+    this.initStars();
+
+    // Start wave or boss + countdown
+    if(this.level%3===0) this.createBoss(); else this.createAlienGrid();
+    this.startLevelCountdown();
+
+    // Colliders (built after entities exist)
+    this.time.delayedCall(0,()=>this.setupColliders());
+
+    // Boot music on first user input
+    this.input.once('pointerdown',()=>{ if(!Sfx.Music.isPlaying()) Sfx.Music.start(); });
+    this.input.keyboard.once('keydown',()=>{ if(!Sfx.Music.isPlaying()) Sfx.Music.start(); });
+  }
+
+  // ---------- Stars ----------
+  initStars(){
+    const add=(tint,speed,lifespan,qty)=> this.add.particles(0,0,'particle',{
+      x:{min:0,max:800}, y:0, lifespan, speedY:{min:speed*0.6,max:speed}, scale:{start:0.6,end:0}, alpha:{start:0.3,end:0}, quantity:qty, tint, blendMode:'ADD' });
+    this.starFar=add(0x99ffff,18,6000,2);
+    this.starMid=add(0x55ffff,40,4500,2);
+    this.starNear=add(0x11ffff,90,3200,2);
+  }
+
+  // ---------- Waves ----------
+  createAlienGrid(){
+    this.aliens=this.physics.add.group();
+    const rows=Math.min(4+Math.floor((this.level-1)/2),6), cols=10, x0=100, y0=80;
+    const types=['alien1','alien2','alien3'];
+    for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+      const t=types[r%types.length]; const a=this.aliens.create(x0+c*60, y0+r*50, t); a.setImmovable(true); a.type=t; a.health=(t==='alien3'?2:1);
+    }
+    this.aliensTotal=rows*cols; this.alienDir=1; this.alienTimer=0; this.alienMoveDelay=Math.max(200,1000-(this.level-1)*100);
+    this.alienShootTimer=this.time.now+800; this.isBossFight=false;
+    this.time.delayedCall(0,()=>this.setupColliders());
+  }
+
+  // ---------- Boss ----------
+  createBoss(){
+    this.isBossFight=true;
+    this.boss=this.physics.add.sprite(400,140,'boss').setImmovable(true).setDepth(5);
+    this.boss.setScale(4,3); if(this.boss.body&&this.boss.body.setSize) this.boss.body.setSize(120,70,true);
+    this.bossHp=Math.floor(120*(1+(this.level-1)*0.25)); this.bossMaxHp=this.bossHp;
+    // Core movement params
+    this.bossHomeY = 140; // ensure defined to avoid NaN Y
+    this.bossMinX=60; this.bossMaxX=740; this.bossSpeedX=110; this.bossMoveDir=1; this.bossStartAt=this.time.now; this.bossPhase=0; this.bossBulletSpeedBase=260; this.bossFireScale=1.0;
+    this.bossHealth=this.add.graphics(); this.updateBossHealthBar();
+    this.bossHit=this.add.rectangle(this.boss.x,this.boss.y,120,70,0x00ff00,0); this.physics.add.existing(this.bossHit,true);
+    this.time.delayedCall(0,()=>this.setupColliders());
+  }
+
+  updateBossHealthBar(){ if(!this.bossHealth) return; const g=this.bossHealth; g.clear(); const x=100,y=70,w=600,h=10; g.fillStyle(0x222222,0.6).fillRect(x,y,w,h); const pct=this.bossMaxHp>0?this.bossHp/this.bossMaxHp:0; g.fillStyle(0xff5555,1).fillRect(x+1,y+1,Math.floor((w-2)*pct),h-2); g.lineStyle(1,0xffffff,0.6).strokeRect(x,y,w,h); }
+
+  // ---------- Shields ----------
+  createShields(){
+    this.shields.clear(true,true);
+    const bases=[160,400,640];
+    bases.forEach(bx=>{ for(let r=0;r<4;r++) for(let c=0;c<8;c++){ if(r===3&&(c<2||c>5)) continue; const x=bx+(c-4)*14, y=500+r*10; const block=this.shields.create(x,y,'shieldBlock'); block.hp=2; }});
+  }
+
+  // ---------- Level flow ----------
+  startLevelCountdown(){ this.isStartingLevel=true; this.physics.world.pause(); const seq=[[0,`Level ${this.level}`],[700,'3'],[1400,'2'],[2100,'1'],[2800,'GO!']]; seq.forEach(s=> this.time.delayedCall(s[0],()=>{ this.infoText.setText(s[1]); Sfx.beep(800+s[0]/10,0.06,'square',0.03); })); this.time.delayedCall(3200,()=>{ this.infoText.setText(''); this.isStartingLevel=false; this.physics.world.resume(); }); }
+  
+  // More defensive countdown: store end time and auto-resume if needed
+  startLevelCountdown(){
+    this.isStartingLevel = true;
+    this.physics.world.pause();
+    this._countdownEndAt = this.time.now + 3200;
+    const seq = [[0,`Level ${this.level}`],[700,'3'],[1400,'2'],[2100,'1'],[2800,'GO!']];
+    seq.forEach(s=> this.time.delayedCall(s[0],()=>{ this.infoText.setText(s[1]); Sfx.beep(800+s[0]/10,0.06,'square',0.03); }));
+    this.time.delayedCall(3200,()=>{ this.infoText.setText(''); this.isStartingLevel=false; this.physics.world.resume(); });
+  }
+
+  beginNextLevel(){
+    this.isStartingLevel=true; this.physics.world.pause(); this.infoText.setText('Level Complete!');
+    this.time.delayedCall(1000,()=>{
+      this.resetForNextLevel();
+      this.level++; this.levelText.setText('Level: '+this.level);
+      if(this.level%3===0) this.createBoss(); else this.createAlienGrid();
+      // Ensure colliders are re-established for new groups
+      this.time.delayedCall(0,()=>this.setupColliders());
+      this.startLevelCountdown();
+    });
+  }
+
+  // Clear transient objects and state before building the next level
+  resetForNextLevel(){
+    // Clear bullets (player + alien)
+    if(this.playerBullets){ this.playerBullets.children.each(b=>{ if(b){ if(b.disableBody) b.disableBody(true,true); b.setActive(false).setVisible(false);} }); }
+    if(this.alienBullets){ this.alienBullets.children.each(b=>{ if(b){ if(b.disableBody) b.disableBody(true,true); b.setActive(false).setVisible(false);} }); }
+    // Remove any remaining powerups
+    if(this.powerups){ this.powerups.children.each(p=>{ if(p&&p.destroy) p.destroy(); }); }
+    // Hide/clear shield visuals + powerup timers
+    if(this.shieldSprite) this.shieldSprite.setVisible(false);
+    this.doubleUntil=0; this.spreadUntil=0; this.rapidUntil=0; this.shieldUntil=0; this.shieldHits=0;
+    // Reset firing cadence
+    this.lastFired=0;
+    // Remove old boss artifacts if any
+    try{ if(this.bossHit){ this.bossHit.destroy(); this.bossHit=null; } }catch(e){}
+    try{ if(this.bossHealth){ this.bossHealth.clear(); } }catch(e){}
+    // Destroy old colliders so new groups can register cleanly
+    if(this._colliders){ this._colliders.forEach(c=>{ try{ c.destroy(); }catch(e){} }); this._colliders=[]; }
+  }
+
+  // ---------- Colliders ----------
+  setupColliders(){ try{
+    this.physics.add.overlap(this.playerBullets, this.shields, this.hitShield, null, this);
+    this.physics.add.overlap(this.alienBullets, this.shields, this.hitShield, null, this);
+    if(this.aliens) this.physics.add.overlap(this.playerBullets, this.aliens, this.hitAlien, null, this);
+    if(this.bossHit) this.physics.add.overlap(this.playerBullets, this.bossHit, this.hitBoss, null, this);
+    this.physics.add.overlap(this.alienBullets, this.player, this.hitPlayer, null, this);
+    this.physics.add.overlap(this.powerups, this.player, this.collectPowerup, null, this);
+  }catch(e){} }
+
+  // ---------- Update ----------
+  update(time, delta){
+    // If countdown overran for any reason, auto-resume
+    if(this.isStartingLevel && this._countdownEndAt && time > this._countdownEndAt+50){
+      this.isStartingLevel=false; try{ this.physics.world.resume(); }catch(e){}
+      this.infoText.setText('');
+    }
+    if(this.isRestarting||this.isStartingLevel) return;
+    // Player input
+    const left=this.cursors.left.isDown, right=this.cursors.right.isDown, fire=this.keySpace.isDown;
+    this.player.setVelocityX( (left&&!right)?-300 : (right&&!left)?300 : 0 );
+    // Keep shield sprite aligned
+    if(this.shieldSprite) this.shieldSprite.setPosition(this.player.x,this.player.y).setVisible((this.shieldHits||0)>0 && (this.time.now<(this.shieldUntil||0)));
+    // Firing with power-ups
+    const rapid = this.time.now < (this.rapidUntil||0);
+    const dbl   = this.time.now < (this.doubleUntil||0);
+    const spread= this.time.now < (this.spreadUntil||0);
+    const fireDelay = rapid ? 120 : 250;
+    if(fire && time > (this.lastFired||0)){
+      let fired=0; const baseY=this.player.y-22; const used=[];
+      // Base shots
+      if(dbl){
+        // Always attempt to fire both muzzles; ensure two distinct instances
+        const pair=this.twoFreshBullets(used);
+        if(pair.length>=2){
+          let [L,R]=pair; if(L===R){ R=this.playerBullets.create(0,0,'bullet'); }
+          L.fire(this.player.x-18, baseY, -620, 'bullet'); L.owner='player'; L.passShieldUntil=this.time.now+300;
+          R.fire(this.player.x+18, baseY, -620, 'bullet'); R.owner='player'; R.passShieldUntil=this.time.now+300;
+          fired+=2;
+        } else if(pair.length===1){
+          const b=pair[0];
+          // Fallback: alternate single muzzle if pool somehow constrained
+          this._muzzleRightFirst=!this._muzzleRightFirst; const x=this._muzzleRightFirst?this.player.x+18:this.player.x-18;
+          b.fire(x, baseY, -620, 'bullet'); b.owner='player'; b.passShieldUntil=this.time.now+300; fired++;
+        }
+      } else {
+        const b=this.allocBulletUnique(used); if(b){ b.fire(this.player.x, baseY, -600, 'bullet'); b.owner='player'; fired++; }
+      }
+      // Spread pair (ensure two distinct bullets like double-shot)
+      if(spread){
+        const pair = this.twoFreshBullets(used);
+        if(pair.length>=2){
+          let [l2,r2]=pair;
+          if(l2===r2){ r2=this.playerBullets.create(0,0,'bullet'); }
+          l2.fire(this.player.x-16, baseY+4, -600,'bullet'); l2.owner='player'; l2.setVelocityX(-200); l2.passShieldUntil=this.time.now+450;
+          r2.fire(this.player.x+16, baseY+4, -600,'bullet'); r2.owner='player'; r2.setVelocityX(200);  r2.passShieldUntil=this.time.now+450;
+          fired+=2;
+        } else if(pair.length===1){
+          // Fallback: alternate which angled side gets the single slot
+          this._spreadRightFirst = !this._spreadRightFirst;
+          const b = pair[0];
+          const xoff = this._spreadRightFirst ? 16 : -16;
+          const vx   = this._spreadRightFirst ? 200 : -200;
+          b.fire(this.player.x + xoff, baseY+4, -600,'bullet'); b.owner='player'; b.setVelocityX(vx); b.passShieldUntil=this.time.now+450; fired++;
+        }
+      }
+      if(fired>0){ Sfx.beep(900,0.06,'square',0.03); this.lastFired = time + fireDelay; }
+    }
+
+    // Aliens movement + shooting when not boss
+    if(!this.isBossFight && this.aliens && this.aliens.countActive(true)>0){
+      this.alienTimer+=delta; const alive=this.aliens.countActive(true), total=this.aliensTotal||alive; const speedFactor=Phaser.Math.Linear(1,0.4,1-(alive/total)); const targetDelay=Math.max(120,this.alienMoveDelay*speedFactor); if(this.alienTimer>=targetDelay){ this.alienTimer=0; let hitEdge=false; this.aliens.getChildren().forEach(a=>{ if(!a.active) return; a.x+=10*this.alienDir; if(a.x>=770||a.x<=30) hitEdge=true; }); if(hitEdge){ this.alienDir*=-1; this.aliens.getChildren().forEach(a=>{ if(a.active) a.y+=20; if(a.y>520) this.gameOver('Invaders reached the base!'); }); } }
+      if(time>(this.alienShootTimer||0)){ const active=this.aliens.getChildren().filter(a=>a.active); if(active.length){ const src=Phaser.Utils.Array.GetRandom(active); const b=this.alienBullets.get(); if(b){ b.fire(src.x,src.y+20,300,'bossBullet'); b.owner='alien'; } const base=Phaser.Math.Clamp(1200-(this.level-1)*100,400,1200); const mult=Phaser.Math.Linear(1,0.6,1-(active.length/(this.aliensTotal||active.length))); this.alienShootTimer=time+Math.max(220,Math.floor(base*mult)); } }
+    }
+
+    // Boss logic
+    if(this.isBossFight && this.boss && this.boss.active){
+      // Ramp with time
+      const elapsed=time-(this.bossStartAt||time); if(this.bossPhase<1&&elapsed>=20000){ this.bossPhase=1; this.bossSpeedX=Math.min(this.bossSpeedX*1.3,170); this.bossFireScale=0.8; }
+      if(this.bossPhase<2&&elapsed>=35000){ this.bossPhase=2; this.bossSpeedX=Math.min(this.bossSpeedX*1.15,190); this.bossBulletSpeedBase=300; this.bossFireScale=0.7; }
+      if(this.bossPhase<3&&elapsed>=50000){ this.bossPhase=3; this.bossSpeedX=Math.min(this.bossSpeedX*1.2,210); this.bossBulletSpeedBase=320; this.bossFireScale=0.6; }
+      // Horizontal sweep
+      if(!Number.isFinite(this.bossHomeY)) this.bossHomeY = this.boss.y;
+      this.boss.y = this.bossHomeY + Math.sin(time*0.004)*18;
+      this.boss.x += (this.bossSpeedX*(delta/1000))*this.bossMoveDir;
+      if(this.boss.x>=this.bossMaxX){ this.boss.x=this.bossMaxX; this.bossMoveDir=-1; }
+      if(this.boss.x<=this.bossMinX){ this.boss.x=this.bossMinX; this.bossMoveDir=1; }
+      // Ensure visible/active
+      if(!this.boss.visible) this.boss.setVisible(true);
+      if(!this.boss.active) this.boss.setActive(true);
+      if(this.bossHit){ this.bossHit.setPosition(this.boss.x,this.boss.y); if(this.bossHit.body&&this.bossHit.body.updateFromGameObject) this.bossHit.body.updateFromGameObject(); }
+      // Fire
+      if(time>(this.bossFireTimer||0)){
+        const pattern=(Math.floor(time/2000)%2);
+        if(pattern===0){ for(let i=-1;i<=1;i++){ const b=this.alienBullets.get(); if(!b) continue; const vy=(this.bossBulletSpeedBase||280)+Math.abs(i)*40; b.fire(this.boss.x+i*12,this.boss.y+40,vy,'bossBullet'); b.owner='alien'; } const base=Phaser.Math.Between(800,1100); this.bossFireTimer=time+Math.max(300,Math.floor(base*(this.bossFireScale||1))); }
+        else { for(let i=-2;i<=2;i++){ const b=this.alienBullets.get(); if(!b) continue; const vy=(this.bossBulletSpeedBase||300); b.fire(this.boss.x,this.boss.y+40,vy,'bossBullet'); b.owner='alien'; b.setVelocityX(i*120); } const base=Phaser.Math.Between(1000,1300); this.bossFireTimer=time+Math.max(350,Math.floor(base*(this.bossFireScale||1))); }
+        if(this.bossPhase>=3){ for(let k=-3;k<=3;k++){ const b2=this.alienBullets.get(); if(!b2) continue; b2.fire(this.boss.x,this.boss.y+36,(this.bossBulletSpeedBase||320)+Phaser.Math.Between(0,60),'bossBullet'); b2.owner='alien'; b2.setVelocityX(k*80+Phaser.Math.Between(-20,20)); } }
+      }
+    }
+  }
+
+  // ---------- Bullet allocation helpers (ensure unique instances) ----------
+  allocBullet(){ let b=this.playerBullets.get(); if(!b){ b=this.playerBullets.create(0,0,'bullet'); } return b; }
+  allocBulletUnique(used){ const seen=new Set(used); let tries=0; let b=this.allocBullet(); while(b && seen.has(b) && tries<4){ b=this.playerBullets.get(); if(!b) b=this.playerBullets.create(0,0,'bullet'); tries++; } if(b) used.push(b); return b; }
+  allocBulletsUnique(n, used){ const arr=[]; for(let i=0;i<n;i++){ const b=this.allocBulletUnique(used); if(!b) break; arr.push(b); } return arr; }
+
+  twoFreshBullets(used){
+    const res=this.allocBulletsUnique(2, used);
+    if(res.length===2) return res;
+    const uniq=new Set(res);
+    while(res.length<2){ const nb=this.playerBullets.create(0,0,'bullet'); if(!nb || uniq.has(nb)) break; uniq.add(nb); used.push(nb); res.push(nb); }
+    return res;
+  }
+
+  // ---------- Hit handlers ----------
+  hitAlien(bullet, alien){
+    if(!bullet.active||!alien.active) return;
+    if(bullet.disableBody) bullet.disableBody(true,true);
+    bullet.setActive(false).setVisible(false);
+    // Damage and feedback
+    alien.health=(alien.health||1)-1;
+    if(alien.health>0){
+      alien.setTint(0xff6666);
+      this.infoPopup(alien.x, alien.y-10, 'HIT', '#ffaaaa');
+      this.time.delayedCall(120,()=>alien.clearTint());
+      return;
+    }
+    // Kill
+    alien.disableBody(true,true);
+    this.score+=10; this.scoreText.setText('Score: '+this.score);
+    this.infoPopup(alien.x, alien.y-12, '+10', '#ffee88');
+    const p=this.add.particles(alien.x,alien.y,'particle',{speed:{min:-100,max:100}, lifespan:400, scale:{start:1,end:0}, emitting:false, blendMode:'ADD'}); p.explode(20);
+    Sfx.explosion();
+    if(Math.random()<0.14) this.dropPowerup(alien.x, alien.y);
+    if(this.aliens.countActive(true)===0) this.beginNextLevel();
+  }
+  
+  // Drop power-ups sometimes
+  dropPowerup(x,y){ const tRand=Math.random(); let type='double'; if(tRand<0.25) type='spread'; else if(tRand<0.5) type='rapid'; else if(tRand<0.65) type='shield'; const p=this.powerups.create(x,y,'powerup'); p.setVelocity(0, Phaser.Math.Between(120,160)); p.setBounce(0.3).setCollideWorldBounds(true); p.setData('type', type); const tintMap={double:0x00ffff, spread:0xffaa00, rapid:0xff00ff, shield:0x00ffaa}; p.setTint(tintMap[type]||0xffffff); }
+
+  hitPlayer(player, bullet){ bullet.setActive(false).setVisible(false); if(this.time.now<(this.playerInvincibleUntil||0)) return; // shield absorbs
+    if((this.shieldHits||0)>0 && this.time.now < (this.shieldUntil||0)){ this.shieldHits--; const burst=this.add.particles(player.x,player.y,'particle',{speed:{min:-120,max:120},lifespan:300,scale:{start:1,end:0},emitting:false,blendMode:'ADD'}); burst.explode(18); Sfx.beep(500,0.08,'triangle',0.03); this.playerInvincibleUntil=this.time.now+300; if(this.shieldHits<=0 && this.shieldSprite) this.shieldSprite.setVisible(false); return; }
+    this.lives--; this.livesText.setText('Lives: '+this.lives); const p=this.add.particles(player.x,player.y,'particle',{speed:200, lifespan:600, scale:{start:1.4,end:0}, emitting:false, blendMode:'ADD'}); p.explode(30); Sfx.explosion(); if(this.lives>0){ player.disableBody(true,true); this.time.delayedCall(900,()=>{ player.enableBody(true,400,550,true,true); this.playerInvincibleUntil=this.time.now+1500; player.setAlpha(0.35); this.tweens.add({targets:player, alpha:{from:0.35,to:1}, yoyo:true, duration:120, repeat:10}); }); } else this.gameOver('You have been defeated!'); }
+
+  hitShield(bullet, block){ if(!block||!block.active) return; if(bullet.owner==='player' && bullet.passShieldUntil && this.time.now<bullet.passShieldUntil) return; if(bullet.disableBody) bullet.disableBody(true,true); bullet.setActive(false).setVisible(false); block.hp=(block.hp||1)-1; if(block.hp<=0) block.destroy(); else { block.setTint(0x00ffff); this.time.delayedCall(80,()=>block.clearTint()); } }
+
+  hitBoss(objA, objB){
+    const bullet=(objA&&objA.owner==='player')?objA : (objB&&objB.owner==='player')?objB : null;
+    if(!bullet||!this.boss||!this.boss.active) return;
+    if(!bullet.piercing){ if(bullet.disableBody) bullet.disableBody(true,true); bullet.setActive(false).setVisible(false);} 
+    const dmg=bullet.piercing?10:1;
+    this.bossHp=Math.max(0,this.bossHp-dmg);
+    this.updateBossHealthBar();
+    // Boss hit cue (slightly more present)
+    if (bullet.piercing) {
+      Sfx.beep(1400, 0.06, 'triangle', 0.035);
+      this.time.delayedCall(40, () => Sfx.beep(900, 0.04, 'triangle', 0.02));
+    } else {
+      Sfx.beep(820, 0.045, 'triangle', 0.03);
+      this.time.delayedCall(35, () => Sfx.beep(1000, 0.03, 'triangle', 0.02));
+    }
+    if(this.boss.setTint){ this.boss.setTint(0xff8888); this.time.delayedCall(80,()=>{ if(this.boss&&this.boss.active) this.boss.clearTint(); }); }
+    if(this.bossHp<=0) this.killBoss();
+  }
+
+  collectPowerup(player,p){
+    const t=p.getData('type')||'double';
+    const x=player.x, y=player.y-28;
+    p.destroy();
+    if(t==='double'){
+      this.doubleUntil=Math.max(this.doubleUntil||0,this.time.now+8000);
+      this.infoPopup(x,y,'DOUBLE SHOT','#00ffff');
+    } else if(t==='spread'){
+      this.spreadUntil=Math.max(this.spreadUntil||0,this.time.now+8000);
+      this.infoPopup(x,y,'SPREAD SHOT','#ffaa00');
+    } else if(t==='rapid'){
+      this.rapidUntil=Math.max(this.rapidUntil||0,this.time.now+8000);
+      this.infoPopup(x,y,'RAPID FIRE','#ff00ff');
+    } else if(t==='shield'){
+      this.shieldUntil=this.time.now+10000; this.shieldHits=1;
+      this.infoPopup(x,y,'SHIELD','#00ffaa');
+    }
+    Sfx.beep(1000,0.06,'square',0.03);
+  }
+
+  infoPopup(x,y,text,color='#0ff'){
+    const t=this.add.text(x,y,text,{fontFamily:'monospace',fontSize:'16px',color}).setOrigin(0.5);
+    this.tweens.add({targets:t,y:y-28,alpha:0,duration:700,onComplete:()=>t.destroy()});
+  }
+
+  // ---------- Game over / Restart ----------
+  gameOver(message){ if(this.isGameOver) return; this.isGameOver=true; this.player.disableBody(true,true); this.infoText.setText(message+'\nClick to Restart'); this.input.once('pointerdown',()=>this.restartGame()); Sfx.Music.stop(); }
+  restartGame(){ if(this.isRestarting) return; this.isRestarting=true; try{ if(this.bossHit) this.bossHit.destroy(); }catch(e){} try{ if(this.bossHealth) this.bossHealth.destroy(); }catch(e){} this.scene.start('StartScene'); }
+
+  togglePause(){ this.isPaused=!this.isPaused; if(this.isPaused){ this.physics.world.pause(); this.infoText.setText('Paused'); } else { this.physics.world.resume(); this.infoText.setText(''); } }
+  updateMuteText(m){ this.muteText.setText(m?'MUTED':''); }
+}
+
+// ---------- Start Scene ----------
+class StartScene extends Phaser.Scene{ constructor(){ super('StartScene'); } create(){ const w=this.scale.width,h=this.scale.height; const t={fontFamily:'monospace', color:'#fff'}; this.add.text(w/2,h/2-120,'SPACE INVADERS',{...t,fontSize:'52px',color:'#0ff'}).setOrigin(0.5); this.add.text(w/2,h/2-70,'Modern Phaser Edition',{...t,fontSize:'18px',color:'#ccc'}).setOrigin(0.5); this.add.text(w/2,h/2+10,'Press SPACE or TAP to start',{...t,fontSize:'18px'}).setOrigin(0.5); this.add.text(w/2,h/2+40,'Controls: <- -> move, Space fire, P pause, M mute',{...t,fontSize:'16px',color:'#bbb'}).setOrigin(0.5); this.input.keyboard.once('keydown-SPACE',()=>this.scene.start('GameScene')); this.input.once('pointerdown',()=>this.scene.start('GameScene')); } }
+
+// ---------- Phaser Boot ----------
+const config={ type:Phaser.AUTO, width:800, height:600, backgroundColor:'#000', physics:{ default:'arcade', arcade:{ gravity:{y:0}, debug:false } }, pixelArt:true, scale:{ mode:Phaser.Scale.FIT, autoCenter:Phaser.Scale.CENTER_BOTH }, scene:[StartScene, GameScene] };
+new Phaser.Game(config);
+

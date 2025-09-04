@@ -1,0 +1,50 @@
+
+                // Fire patterns alternating: aimed shots and spread
+                if (time > this.bossFireTimer) {
+                    const pattern = (Math.floor(time / 2000) % 2);
+                    if (pattern === 0) {
+                        // Aimed triple burst
+                        for (let i = -1; i <= 1; i++) {
+                            const b = this.allocBullet();
+                            if (!b) continue;
+                            b.fire(this.boss.x + i * 12, this.boss.y + 40, 220 + Math.abs(i) * 40, 'bossBullet');
+                            b.owner = 'alien';
+                        }
+                        this.bossFireTimer = time + Phaser.Math.Between(800, 1100);
+                    } else {
+                        // Wide spread downward
+                        for (let i = -2; i <= 2; i++) {
+                            const b = this.allocBullet();
+                            if (!b) continue;
+                            b.fire(this.boss.x, this.boss.y + 40, 240, 'bossBullet');
+                            b.owner = 'alien';
+                            b.setVelocityX(i * 120);
+                        }
+                        this.bossFireTimer = time + Phaser.Math.Between(1000, 1300);
+                    }
+                }
+            }
+
+            hitBoss(bullet, boss) {
+                if (!bullet || !boss || !boss.active) return;
+                // Apply damage; beam deals big damage
+                let dmg = bullet.piercing ? 10 : 1;
+                // Disable non-beam bullet immediately
+                if (!bullet.piercing) {
+                    if (bullet.disableBody) bullet.disableBody(true, true);
+                    bullet.setActive(false).setVisible(false);
+                }
+                this.bossHp -= dmg;
+                if (this.bossHp < 0) this.bossHp = 0;
+                this.updateBossHealthBar();
+                // Feedback
+                boss.setTint(0xff8888);
+                this.time.delayedCall(80, () => { if (boss.active) boss.clearTint(); });
+                if (this.bossHp <= 0) {
+                    this.killBoss();
+                }
+            }
+
+            updateBossHealthBar() {
+                if (!this.bossHealth) return;
+                const g = this.bossHealth;

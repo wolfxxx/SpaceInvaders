@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Modern Space Invaders</title>
+  <!-- Make all relative URLs resolve from src/ so existing paths continue to work -->
+  <base href="src/">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23000'/%3E%3Cpath d='M8 10h4v4H8v-4zm12 0h4v4h-4v-4zM6 14h20v4H6v-4zm4 4h4v4h-4v-4zm8 0h4v4h-4v-4z' fill='%2300ffff'/%3E%3C/svg%3E" />
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+  <style>
+    html, body { height: 100%; margin: 0; background:#000; }
+    body { display:flex; align-items:center; justify-content:center; }
+    canvas { image-rendering: pixelated; border:2px solid #333; box-shadow:0 0 20px #0ff; }
+    #scanlines { position:fixed; inset:0; pointer-events:none; opacity:.16; mix-blend-mode:screen;
+      background-image:repeating-linear-gradient(0deg, rgba(255,255,255,.09) 0px, rgba(255,255,255,.09) 1px, transparent 1px, transparent 3px); }
+  </style>
+  <!-- Note: with <base href="src/"> these scripts resolve to src/music.js and src/game.js -->
+</head>
+<body>
+  <div id="scanlines"></div>
+  <div id="volume-control" style="position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:100;">
+    <label for="volume" style="color:#fff; font-family:monospace; margin-right:10px;">Volume:</label>
+    <input type="range" id="volume" name="volume" min="0" max="100" value="50">
+  </div>
+  <script src="music.js"></script>
+  <script src="game.js"></script>
+</body>
+<!--
+This root index.html enables GitHub Pages to serve the game from the repository root
+without moving files out of src/. The <base href="src/"> ensures asset/script paths
+continue to resolve relative to src/.
+-->
+</html>
+

@@ -1,0 +1,28 @@
+                    yoyo: true,
+                    repeat: -1,
+                    ease: 'Sine.inOut'
+                });
+            }
+
+            updateBoss(time, delta) {
+                if (!this.boss || !this.boss.active) return;
+                // Horizontal sweep with bounce
+                // Maintain a constant Y to avoid drift from any physics side-effects
+                this.boss.y = this.bossHomeY;
+                // Horizontal movement handled by tween; no manual increment
+                // Clamp and bounce – prevents drifting off-screen due to large deltas
+                const minX = 40, maxX = 760;
+                if (this.boss.x > maxX) { this.boss.x = maxX; }
+                if (this.boss.x < minX) { this.boss.x = minX; }
+                // Keep body in sync and zero out any stray velocity
+                if (this.boss.body) {
+                    this.boss.body.x = this.boss.x - (this.boss.body.width * 0.5);
+                    this.boss.body.y = this.boss.y - (this.boss.body.height * 0.5);
+                    this.boss.body.velocity.x = 0;
+                    this.boss.body.velocity.y = 0;
+                }
+                // Failsafe: if boss somehow goes far out of view, pull it back to center
+                if (this.boss.x < -100 || this.boss.x > 900 || this.boss.y < -100 || this.boss.y > 700) {
+                    this.boss.x = 400;
+                    this.boss.y = this.bossHomeY;
+                    if (this.bossTween) this.bossTween.restart();
