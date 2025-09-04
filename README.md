@@ -1,6 +1,6 @@
 # Modern Space Invaders (Phaser 3)
 
-A fast, modern take on the arcade classic built with Phaser 3. Battle waves of invaders, face periodic boss fights, stack a combo multiplier, charge up a piercing shot, and chase a persistent high score — all with crunchy SFX and adaptive music.
+Just for fun and education. A fast, modern take on the arcade classic built with Phaser 3. Battle waves of invaders, face periodic boss fights, stack a combo multiplier, charge up a piercing shot, and chase a persistent high score — all with crunchy SFX and adaptive music.
 
 ## Features
 - Arcade action: smooth movement, snappy shots, destructible shields, starfield backdrop.
@@ -51,6 +51,44 @@ Two simple options:
 - Add gameplay GIFs/screenshots to a `docs/` folder and link them here.
 - Example (once added):
   - `![Gameplay](docs/gameplay.gif)`
+
+## Global Leaderboard (optional)
+This project includes a simple Firebase Firestore leaderboard suitable for GitHub Pages.
+
+Enable it
+- In `index.html` (root) or `src/index.html`, paste your Firebase web config in the `window.FIREBASE_CONFIG` block and uncomment the two leaderboard script tags:
+  - `window.FIREBASE_CONFIG = { apiKey, authDomain, projectId }`
+  - `<script type="module" src="leaderboard.js"></script>`
+- Create a Firestore DB in your Firebase project.
+- Optional but recommended: enable Anonymous Auth in Authentication.
+ - Optional but recommended: enable App Check for Web (reCAPTCHA v3) and set `window.FIREBASE_APPCHECK_SITE_KEY`.
+
+Firestore rules (starter, permissive read / restricted write)
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /scores/{doc} {
+      allow read: if true;
+      allow create: if request.auth != null
+                    && request.resource.data.name is string
+                    && request.resource.data.score is number
+                    && request.resource.data.score >= 0 && request.resource.data.score <= 1000000
+                    && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 24;
+    }
+  }
+}
+```
+
+How it works
+- On Game Over, you’re prompted for a name; score is submitted if the leaderboard is enabled.
+- Start screen shows the Top 10 (name, score, date).
+
+App Check (recommended)
+- Firebase Console → Build → App Check → Add app → Web → choose reCAPTCHA v3 → copy the site key.
+- In `index.html`, set `window.FIREBASE_APPCHECK_SITE_KEY = '...';`.
+- In Firestore, enforce App Check for read/write once verified.
+
 
 ## Audio Credits
 Tracks sourced from Pixabay (free for use, no attribution required — included here for courtesy):

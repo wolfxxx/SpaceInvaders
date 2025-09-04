@@ -670,6 +670,95 @@ class GameScene extends Phaser.Scene{
     const summary = wasHigh ? 'New High Score! '+this.score : 'Score: '+this.score+'  Best: '+this.highScore;
     this.infoText.setText(message+'\n'+summary+'\nClick to Restart');
     this.input.once('pointerdown',()=>this.restartGame()); Music.stop();
+    // Global leaderboard submit (optional): delay to let explosions/FX play first
+    this._scorePrompted = false;
+    this.time.delayedCall(1100, ()=>{
+      if(this._scorePrompted || this.isRestarting) return;
+      this._scorePrompted = true;
+      // Prefer a custom in-game name entry overlay over a blocking prompt
+      if(window.Leaderboard && typeof window.Leaderboard.submitScore==='function'){
+        this.showNameEntryOverlay && this.showNameEntryOverlay();
+      }
+    });
+  }
+
+  // ---------- In-game Name Entry Overlay (for leaderboard) ----------
+  showNameEntryOverlay(){
+    if(this._nameOverlayRoot) return;
+    const w=this.scale.width, h=this.scale.height;
+    const root=this.add.container(0,0).setDepth(1000);
+    const dim=this.add.rectangle(w/2,h/2,w,h,0x000000,0.6).setInteractive();
+    const boxW=Math.min(560, w-80), boxH=240;
+    const panel=this.add.rectangle(w/2,h/2, boxW, boxH, 0x101018, 0.96).setStrokeStyle(2,0x00ffaa,0.9);
+    const title=this.add.text(w/2, h/2 - 80, 'SUBMIT SCORE', {fontFamily:'monospace', fontSize:'24px', color:'#00ffaa'}).setOrigin(0.5);
+    const hint=this.add.text(w/2, h/2 - 50, 'Enter your name (max 24):', {fontFamily:'monospace', fontSize:'16px', color:'#bbb'}).setOrigin(0.5);
+    // Input box visuals
+    const ibW = boxW - 80, ibH = 40;
+    const ibox=this.add.rectangle(w/2, h/2 - 5, ibW, ibH, 0x0b0b12, 1).setStrokeStyle(1,0x00ffff,0.7);
+    this._nameInputValue = this._nameInputValue || '';
+    const nameStyle = {fontFamily:'monospace', fontSize:'22px', color:'#ffffff'};
+    const nameText=this.add.text(ibox.x - ibW/2 + 10, ibox.y, this._nameInputValue||'', nameStyle).setOrigin(0,0.5);
+    const caret=this.add.text(0,0,'|',{...nameStyle, color:'#00ffff'}).setOrigin(0,0.5);
+    const place=this.add.text(ibox.x - ibW/2 + 10, ibox.y, 'YOUR NAME',{...nameStyle, color:'#666'}).setOrigin(0,0.5);
+    // Buttons
+    const btnStyle={fontFamily:'monospace', fontSize:'18px', color:'#000'};
+    const btnSubmitBg=this.add.rectangle(w/2+90, h/2+55, 120, 34, 0x00ffaa, 1).setInteractive({useHandCursor:true});
+    const btnSubmitTx=this.add.text(btnSubmitBg.x, btnSubmitBg.y, 'SUBMIT', btnStyle).setOrigin(0.5);
+    const btnSkipBg=this.add.rectangle(w/2-90, h/2+55, 120, 34, 0x222, 1).setStrokeStyle(1,0x888,0.8).setInteractive({useHandCursor:true});
+    const btnSkipTx=this.add.text(btnSkipBg.x, btnSkipBg.y, 'SKIP', {fontFamily:'monospace', fontSize:'18px', color:'#ccc'}).setOrigin(0.5);
+    root.add([dim,panel,title,hint,ibox,nameText,caret,place,btnSubmitBg,btnSubmitTx,btnSkipBg,btnSkipTx]);
+    this._nameOverlayRoot=root; this._nameOverlayRefs={nameText, place, caret, ibox, btnSubmitBg, btnSkipBg};
+    // Caret position + blink
+    const updateCaret=()=>{
+      const txt = nameText.text||'';
+      place.setVisible(txt.length===0);
+      const tWidth = Math.max(0, nameText.width||0);
+      const left = ibox.x - ibW/2 + 10;
+      const right = ibox.x + ibW/2 - 10;
+      let x = left + tWidth + 2;
+      if(x > right) x = right;
+      // Vertically center the caret on the input box (slight nudge for crispness)
+      caret.setPosition(x, ibox.y - 1);
+    };
+    this.tweens.add({targets:caret, alpha:{from:1,to:0.15}, duration:420, yoyo:true, repeat:-1, ease:'Sine.InOut'});
+    updateCaret();
+    // Keyboard input
+    const allowed=/[A-Za-z0-9 _.-]/;
+    this._nameKeyHandler=(ev)=>{
+      if(ev.key==='Enter') { this.submitNameEntryOverlay(); return; }
+      if(ev.key==='Escape'){ this.hideNameEntryOverlay(); return; }
+      if(ev.key==='Backspace'){ ev.preventDefault(); if(this._nameInputValue) this._nameInputValue=this._nameInputValue.slice(0,-1); nameText.setText(this._nameInputValue); updateCaret(); return; }
+      if(ev.key && ev.key.length===1 && allowed.test(ev.key)){
+        if((this._nameInputValue||'').length<24){ this._nameInputValue=(this._nameInputValue||'')+ev.key; nameText.setText(this._nameInputValue); updateCaret(); }
+      }
+    };
+    this.input.keyboard.on('keydown', this._nameKeyHandler);
+    // Pointer: focus box to hint typing
+    ibox.on('pointerdown',()=>{});
+    // Buttons
+    btnSubmitBg.on('pointerdown',()=>this.submitNameEntryOverlay());
+    btnSkipBg.on('pointerdown',()=>this.hideNameEntryOverlay());
+  }
+
+  hideNameEntryOverlay(){
+    try{ if(this._nameKeyHandler) this.input.keyboard.off('keydown', this._nameKeyHandler); }catch(e){}
+    this._nameKeyHandler=null;
+    if(this._nameOverlayRoot){ this._nameOverlayRoot.destroy(true); this._nameOverlayRoot=null; this._nameOverlayRefs=null; }
+  }
+
+  submitNameEntryOverlay(){
+    const raw=(this._nameInputValue||'').trim();
+    if(!raw){ this.hideNameEntryOverlay(); return; }
+    try{
+      if(window.Leaderboard && window.Leaderboard.submitScore){
+        window.Leaderboard.submitScore(raw, this.score).then(()=>{
+          this.infoPopup(this.scale.width/2, this.scale.height/2 - 90, 'Submitted!', '#00ffaa');
+          // After a short moment, return to Start screen automatically
+          this.time.delayedCall(250, ()=>{ if(!this.isRestarting) this.restartGame(); });
+        }).catch(()=>{ this.time.delayedCall(250, ()=>{ if(!this.isRestarting) this.restartGame(); }); });
+      }
+    }catch(e){}
+    this.hideNameEntryOverlay();
   }
   restartGame(){ if(this.isRestarting) return; this.isRestarting=true; try{ if(this.bossHit) this.bossHit.destroy(); }catch(e){} try{ if(this.bossHealth) this.bossHealth.destroy(); }catch(e){} try{ if(this.bossDashEmitter){ this.bossDashEmitter.stop&&this.bossDashEmitter.stop(); const mgr=this.bossDashEmitter.manager||this.bossDashEmitter; mgr.destroy&&mgr.destroy(); this.bossDashEmitter=null; } }catch(e){} this.scene.start('StartScene'); }
   // Quick afterimage sprite for boss dashes
@@ -729,7 +818,7 @@ class GameScene extends Phaser.Scene{
 }
 
 // ---------- Start Scene ----------
-class StartScene extends Phaser.Scene{ constructor(){ super('StartScene'); } create(){ const w=this.scale.width,h=this.scale.height; const t={fontFamily:'monospace', color:'#fff'}; this.add.text(w/2,h/2-120,'SPACE INVADERS',{...t,fontSize:'52px',color:'#0ff'}).setOrigin(0.5); this.add.text(w/2,h/2-70,'Modern Phaser Edition',{...t,fontSize:'18px',color:'#ccc'}).setOrigin(0.5); const best=(()=>{ try{ return parseInt(localStorage.getItem('si_highscore')||'0',10)||0; }catch(e){ return 0; } })(); this.add.text(w/2,h/2-30,'Best: '+best,{...t,fontSize:'18px',color:'#bbb'}).setOrigin(0.5); this.add.text(w/2,h/2+10,'Press SPACE or TAP to start',{...t,fontSize:'18px'}).setOrigin(0.5); this.add.text(w/2,h/2+40,'Controls: <- -> move, Space fire, P pause, M mute',{...t,fontSize:'16px',color:'#bbb'}).setOrigin(0.5); this.input.keyboard.once('keydown-SPACE',()=>this.scene.start('GameScene')); this.input.once('pointerdown',()=>this.scene.start('GameScene')); } }
+class StartScene extends Phaser.Scene{ constructor(){ super('StartScene'); } create(){ const w=this.scale.width,h=this.scale.height; const t={fontFamily:'monospace', color:'#fff'}; this.add.text(w/2,h/2-120,'SPACE INVADERS',{...t,fontSize:'52px',color:'#0ff'}).setOrigin(0.5); this.add.text(w/2,h/2-70,'Modern Phaser Edition',{...t,fontSize:'18px',color:'#ccc'}).setOrigin(0.5); const best=(()=>{ try{ return parseInt(localStorage.getItem('si_highscore')||'0',10)||0; }catch(e){ return 0; } })(); this.add.text(w/2,h/2-30,'Best (local): '+best,{...t,fontSize:'18px',color:'#bbb'}).setOrigin(0.5); const lbTitle=this.add.text(w/2, h/2+70, 'Global Top 10', {...t,fontSize:'18px',color:'#0ff'}).setOrigin(0.5); const lbText=this.add.text(w/2, h/2+110, 'Enable leaderboard in index.html', {...t,fontSize:'14px',color:'#bbb'}).setOrigin(0.5); try{ if(window.Leaderboard && window.Leaderboard.getTop10){ window.Leaderboard.getTop10().then(list=>{ if(!list||!list.length){ lbText.setText('No scores yet'); return; } const lines=list.map((r,i)=>{ const d=r.createdAt? new Date(r.createdAt): new Date(); const ds=d.toLocaleDateString(); return `${String(i+1).padStart(2,' ')}. ${r.name.slice(0,16).padEnd(16,' ')}  ${String(r.score).padStart(6,' ')}  ${ds}`; }); lbText.setText(lines.join('\n')); lbText.setOrigin(0.5,0.5); }); } }catch(e){} this.add.text(w/2,h/2+10,'Press SPACE or TAP to start',{...t,fontSize:'18px'}).setOrigin(0.5); this.add.text(w/2,h/2+40,'Controls: <- -> move, Space fire, P pause, M mute',{...t,fontSize:'16px',color:'#bbb'}).setOrigin(0.5); this.input.keyboard.once('keydown-SPACE',()=>this.scene.start('GameScene')); this.input.once('pointerdown',()=>this.scene.start('GameScene')); } }
 
 // ---------- Phaser Boot ----------
 const config={ type:Phaser.AUTO, width:800, height:600, backgroundColor:'#000', physics:{ default:'arcade', arcade:{ gravity:{y:0}, debug:false } }, pixelArt:true, scale:{ mode:Phaser.Scale.FIT, autoCenter:Phaser.Scale.CENTER_BOTH }, scene:[StartScene, GameScene] };

@@ -15,6 +15,22 @@
     #scanlines { position:fixed; inset:0; pointer-events:none; opacity:.16; mix-blend-mode:screen;
       background-image:repeating-linear-gradient(0deg, rgba(255,255,255,.09) 0px, rgba(255,255,255,.09) 1px, transparent 1px, transparent 3px); }
   </style>
+  <!-- Global leaderboard (Firebase) -->
+  <script>
+    window.FIREBASE_CONFIG = {
+      apiKey: "AIzaSyBZW21lAJX2eisfjFtQDhIfBQg6gd4rzSQ",
+      authDomain: "spaceinvadersscores-a9177.firebaseapp.com",
+      projectId: "spaceinvadersscores-a9177",
+      storageBucket: "spaceinvadersscores-a9177.firebasestorage.app",
+      messagingSenderId: "551696066897",
+      appId: "1:551696066897:web:1901c0860fec3f81f2cb70",
+      measurementId: "G-EQ2NZ8WTS1"
+    };
+    // Optional but recommended: App Check reCAPTCHA v3 site key
+    // Get one from Firebase Console → Build → App Check → Web
+    // window.FIREBASE_APPCHECK_SITE_KEY = "YOUR_RECAPTCHA_V3_SITE_KEY";
+  </script>
+  <script type="module" src="leaderboard.js"></script>
   <!-- Note: with <base href="src/"> these scripts resolve to src/music.js and src/game.js -->
 </head>
 <body>
@@ -32,4 +48,3 @@ without moving files out of src/. The <base href="src/"> ensures asset/script pa
 continue to resolve relative to src/.
 -->
 </html>
-

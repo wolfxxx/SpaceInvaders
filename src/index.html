@@ -15,6 +15,21 @@
   </style>
 </head>
 <body>
+  <!-- Global leaderboard (Firebase) for local dev too -->
+  <script>
+    window.FIREBASE_CONFIG = {
+      apiKey: "AIzaSyBZW21lAJX2eisfjFtQDhIfBQg6gd4rzSQ",
+      authDomain: "spaceinvadersscores-a9177.firebaseapp.com",
+      projectId: "spaceinvadersscores-a9177",
+      storageBucket: "spaceinvadersscores-a9177.firebasestorage.app",
+      messagingSenderId: "551696066897",
+      appId: "1:551696066897:web:1901c0860fec3f81f2cb70",
+      measurementId: "G-EQ2NZ8WTS1"
+    };
+    // Optional App Check site key for local testing
+    window.FIREBASE_APPCHECK_SITE_KEY = "6LeWZr4rAAAAAD4Hq0vsxgn65FgefgwF4IyLTjIW";
+  </script>
+  <script type="module" src="leaderboard.js"></script>
   <div id="scanlines"></div>
   <div id="volume-control" style="position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:100;">
     <label for="volume" style="color:#fff; font-family:monospace; margin-right:10px;">Volume:</label>
