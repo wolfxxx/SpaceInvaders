@@ -70,7 +70,8 @@ async function getTop10(){
   try{
     if(!(await ensureInit())) return [];
     const { collection, query, orderBy, limit, getDocs } = await import('https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js');
-    const q = query(collection(db, 'scores'), orderBy('score', 'desc'), orderBy('createdAt','asc'), limit(10));
+    // Simpler query: order by score only to avoid composite index and missing createdAt latency
+    const q = query(collection(db, 'scores'), orderBy('score', 'desc'), limit(10));
     const snap = await getDocs(q);
     const out = [];
     snap.forEach(d=>{ const x=d.data(); out.push({ name: x.name||'???', score: x.score||0, createdAt: (x.createdAt && x.createdAt.toDate)? x.createdAt.toDate(): new Date() }); });
