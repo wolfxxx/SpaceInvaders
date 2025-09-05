@@ -823,9 +823,11 @@ class GameScene extends Phaser.Scene{
 }
 
 // ---------- Start Scene ----------
- class StartScene extends Phaser.Scene{ constructor(){ super('StartScene'); } create(){ const w=this.scale.width,h=this.scale.height; const t={fontFamily:'monospace', color:'#fff'}; this.add.text(w/2,h/2-120,'SPACE INVADERS',{...t,fontSize:'52px',color:'#0ff'}).setOrigin(0.5); this.add.text(w/2,h/2-70,'Modern Phaser Edition',{...t,fontSize:'18px',color:'#ccc'}).setOrigin(0.5); const best=(()=>{ try{ return parseInt(localStorage.getItem('si_highscore')||'0',10)||0; }catch(e){ return 0; } })(); this.add.text(w/2,h/2-30,'Best (local): '+best,{...t,fontSize:'18px',color:'#bbb'}).setOrigin(0.5); const lbTitle=this.add.text(w/2, h/2+70, 'Global Top 10', {...t,fontSize:'18px',color:'#0ff'}).setOrigin(0.5);
- const listX = Math.max(40, Math.floor(w/2 - 220));
- const lbText=this.add.text(listX, lbTitle.y+26, 'Loading leaderboard...', {...t,fontSize:'14px',color:'#bbb'}).setOrigin(0,0);
+class StartScene extends Phaser.Scene{ constructor(){ super('StartScene'); } create(){ const w=this.scale.width,h=this.scale.height; const t={fontFamily:'monospace', color:'#fff'}; this.add.text(w/2,h/2-120,'SPACE INVADERS',{...t,fontSize:'52px',color:'#0ff'}).setOrigin(0.5); this.add.text(w/2,h/2-70,'Modern Phaser Edition',{...t,fontSize:'18px',color:'#ccc'}).setOrigin(0.5); const best=(()=>{ try{ return parseInt(localStorage.getItem('si_highscore')||'0',10)||0; }catch(e){ return 0; } })(); this.add.text(w/2,h/2-30,'Best (local): '+best,{...t,fontSize:'18px',color:'#bbb'}).setOrigin(0.5); const lbTitle=this.add.text(w/2, h/2+70, 'Global Top 10', {...t,fontSize:'18px',color:'#0ff'}).setOrigin(0.5);
+const listX = Math.max(40, Math.floor(w/2 - 220));
+const lbText=this.add.text(listX, lbTitle.y+26, 'Loading leaderboard...', {...t,fontSize:'14px',color:'#bbb'}).setOrigin(0,0);
+ // Simple toast helper for user-visible notes
+ const toast=(msg)=>{ const g=this.add.container(w/2,h-60).setDepth(2000); const bg=this.add.rectangle(0,0, Math.min(660, w-60), 34, 0x000000, 0.75).setStrokeStyle(1,0x00ffaa,0.8); const tx=this.add.text(0,0,msg,{fontFamily:'monospace',fontSize:'16px',color:'#0ff'}).setOrigin(0.5); g.add([bg,tx]); this.tweens.add({targets:g, alpha:{from:1,to:0}, duration:1400, delay:1400, onComplete:()=>g.destroy()}); };
  const renderList=(list)=>{ if(!list||!list.length){ lbText.setText('No scores yet'); lbText.setOrigin(0,0); return; } const lines=list.map((r,i)=>{ const d=r.createdAt? new Date(r.createdAt): new Date(); const ds=d.toLocaleDateString(); return `${String(i+1).padStart(2,' ')}. ${r.name.slice(0,16).padEnd(16,' ')}  ${String(r.score).padStart(6,' ')}  ${ds}`; }); lbText.setText(lines.join('\n')); lbText.setOrigin(0,0); };
  const loadOnce=()=>{ try{ if(window.Leaderboard && window.Leaderboard.getTop10){ window.Leaderboard.getTop10().then(renderList).catch(()=> lbText.setText('Leaderboard unavailable')); } else { lbText.setText('Enable leaderboard in index.html'); } }catch(e){ lbText.setText('Leaderboard unavailable'); } }; loadOnce(); // Retry shortly to catch serverTimestamp propagation
  setTimeout(()=>{ if(lbText.text.indexOf('\n')<0 && lbText.text!=='Leaderboard unavailable') loadOnce(); }, 1500);
@@ -839,6 +841,16 @@ class GameScene extends Phaser.Scene{
  refreshBg.on('pointerdown', (pointer, lx, ly, event)=>{ if(event&&event.stopPropagation) event.stopPropagation(); doRefresh(); });
  refreshBg.on('pointerover',()=>{ refreshBg.setFillStyle(0x111522,1); });
  refreshBg.on('pointerout',()=>{ refreshBg.setFillStyle(0x0b0b12,1); });
+ // If leaderboard is disabled, show a one-time toast explaining why (dev helper)
+ try{
+   if(!(window.Leaderboard) || (window.LeaderboardDisabledReason)){
+     const reason = window.LeaderboardDisabledReason||'not_initialized';
+     if(reason==='no_config') toast('Leaderboard disabled: missing FIREBASE_CONFIG.');
+     else if(reason==='auth_failed') toast('Leaderboard auth failed. Enable Anonymous Auth.');
+     else if(reason==='init_failed') toast('Leaderboard init failed. Check App Check/site key.');
+     else toast('Leaderboard not available.');
+   }
+ }catch(e){}
  this.add.text(w/2,h/2+10,'Press SPACE or TAP to start',{...t,fontSize:'18px'}).setOrigin(0.5); this.add.text(w/2,h/2+40,'Controls: <- -> move, Space fire, P pause, M mute',{...t,fontSize:'16px',color:'#bbb'}).setOrigin(0.5); this.input.keyboard.once('keydown-SPACE',()=>this.scene.start('GameScene')); this.input.once('pointerdown',()=>this.scene.start('GameScene')); } }
 
 // ---------- Phaser Boot ----------

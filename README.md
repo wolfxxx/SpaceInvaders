@@ -52,6 +52,26 @@ Two simple options:
 - Example (once added):
   - `![Gameplay](docs/gameplay.gif)`
 
+## Firebase Setup — Quick Checklist
+
+- Create Firebase project
+  - Firestore Database → Create database (Production mode)
+  - Authentication → Sign‑in method → Enable Anonymous
+- App Check (reCAPTCHA v3)
+  - reCAPTCHA Admin → Create v3 key with Domains: your GitHub Pages host (e.g., `yourname.github.io`) and optionally `localhost`, `127.0.0.1` for local dev
+  - Firebase Console → App Check → Your Web app → reCAPTCHA v3 → Use existing key → paste Site + Secret
+- Add config in the app (before `leaderboard.js`)
+  - Put your web config in `index.html` (root, for Pages) and `src/index.html` (for local dev) under `window.FIREBASE_CONFIG`
+  - Set `window.FIREBASE_APPCHECK_SITE_KEY = '...'` in both files
+- Local dev (optional): debug token
+  - Add `self.FIREBASE_APPCHECK_DEBUG_TOKEN = 'YOUR_DEBUG_TOKEN'` to `src/local-dev.js` (this file is ignored by Git)
+  - App Check → Debug tokens → Add the same token string
+- Firestore rules: publish the rules from this README (see below)
+- Enforce App Check after you see “Verified” in App Check → Requests
+- Verify quickly in DevTools on your page:
+  - `await window.LeaderboardReady`
+  - `await window.Leaderboard.getTop10()`
+
 ## Global Leaderboard (optional)
 This project includes a simple Firebase Firestore leaderboard suitable for GitHub Pages.
 
@@ -81,8 +101,71 @@ service cloud.firestore {
 ```
 
 How it works
-- On Game Over, you’re prompted for a name; score is submitted if the leaderboard is enabled.
+- On Game Over, you're prompted for a name; score is submitted if the leaderboard is enabled.
 - Start screen shows the Top 10 (name, score, date).
+
+### App Check (recommended)
+- Firebase Console → Build → App Check → Add app → Web → choose reCAPTCHA v3 → copy the site key.
+- In `index.html` (root) and `src/index.html` (local), set `window.FIREBASE_APPCHECK_SITE_KEY = '...';` before `leaderboard.js`.
+- In Firestore, enforce App Check once verified requests appear in App Check → Requests.
+
+## Use Your Own Firebase (forks/collaborators)
+If you fork/clone and want your own independent high scores, set up your own Firebase project. This repo ships a safe local debug pattern (`src/local-dev.js` is ignored by Git).
+
+1) Create Firebase project
+- Firestore Database → Create database (Production mode)
+- Authentication → Sign‑in method → Enable Anonymous
+
+2) App Check (reCAPTCHA v3)
+- reCAPTCHA Admin → Create a v3 key with Domains:
+  - Your GitHub Pages host (e.g., `yourname.github.io`)
+  - `localhost` and `127.0.0.1` for local dev (optional; otherwise use a debug token)
+- Firebase Console → App Check → Your Web app → reCAPTCHA v3 → Use existing key → paste Site + Secret
+
+3) Wire config
+- Put your web config in both files, before `leaderboard.js`:
+  - `index.html` (root, for Pages)
+  - `src/index.html` (for local dev)
+- Set `window.FIREBASE_APPCHECK_SITE_KEY = '...'`
+
+4) Firestore rules (publish):
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /scores/{doc} {
+      allow read: if true;
+      allow create: if request.auth != null
+                    && request.resource.data.keys().hasOnly(['name','score','createdAt'])
+                    && request.resource.data.name is string
+                    && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 24
+                    && request.resource.data.score is int
+                    && request.resource.data.score >= 0 && request.resource.data.score <= 1000000;
+      allow update, delete: if false;
+    }
+  }
+}
+```
+
+5) Verify App Check then enforce
+- App Check → Requests should show “Verified”
+- Firestore → Settings → App Check enforcement → Enable
+
+6) Optional index
+- If prompted, create a composite index (or keep the simplified score‑only query already used).
+
+### Local development (debug token)
+- File `src/local-dev.js` is ignored by Git. Add your token:
+```
+self.FIREBASE_APPCHECK_DEBUG_TOKEN = 'YOUR_DEBUG_TOKEN';
+```
+- App Check → Debug tokens → Add token (paste same string)
+- Serve from `http://localhost:PORT` and hard‑refresh; App Check Requests show “Verified (Debug)”
+
+### Production hardening
+- Do not commit debug tokens
+- Optionally remove `localhost`/`127.0.0.1` from your reCAPTCHA v3 Domains
+- Keep Firestore enforcement ON and rules restrictive as above
 
 App Check (recommended)
 - Firebase Console → Build → App Check → Add app → Web → choose reCAPTCHA v3 → copy the site key.

@@ -12,6 +12,7 @@ async function ensureInit(){
   const cfg = window.FIREBASE_CONFIG;
   if(!cfg || !cfg.apiKey){
     console.warn('[Leaderboard] No FIREBASE_CONFIG found; leaderboard disabled.');
+    try{ window.LeaderboardDisabledReason = 'no_config'; }catch(e){}
     return false;
   }
   try{
@@ -29,11 +30,12 @@ async function ensureInit(){
       }
     }catch(e){ console.warn('[Leaderboard] App Check init skipped:', e); }
     auth = getAuth(app);
-    try{ await signInAnonymously(auth); }catch(e){ console.warn('[Leaderboard] Anonymous auth failed:', e); }
+    try{ await signInAnonymously(auth); }catch(e){ console.warn('[Leaderboard] Anonymous auth failed:', e); try{ window.LeaderboardDisabledReason = 'auth_failed'; }catch(_){} }
     db = getFirestore(app);
     return true;
   }catch(e){
     console.warn('[Leaderboard] Init failed:', e);
+    try{ window.LeaderboardDisabledReason = 'init_failed'; }catch(_){}
     return false;
   }
 }

@@ -26,9 +26,17 @@
       appId: "1:551696066897:web:1901c0860fec3f81f2cb70",
       measurementId: "G-EQ2NZ8WTS1"
     };
-    // Optional but recommended: App Check reCAPTCHA v3 site key
-    // Get one from Firebase Console → Build → App Check → Web
+    // App Check site key (reCAPTCHA v3)
     window.FIREBASE_APPCHECK_SITE_KEY = "6LeWZr4rAAAAAD4Hq0vsxgn65FgefgwF4IyLTjIW";
+    // If running locally, try to load a local-only debug token from src/local-dev.js
+    (function(){
+      var h = location.hostname;
+      if(h === 'localhost' || h === '127.0.0.1'){
+        var s = document.createElement('script');
+        s.src = 'local-dev.js'; // resolved to src/local-dev.js by <base href="src/">
+        document.head.appendChild(s);
+      }
+    })();
   </script>
   <script type="module" src="leaderboard.js"></script>
   <!-- Note: with <base href="src/"> these scripts resolve to src/music.js and src/game.js -->
