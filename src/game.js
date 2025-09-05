@@ -312,13 +312,18 @@ class GameScene extends Phaser.Scene{
         }
       }
     }catch(e){}
-    // Simple gate: do nothing while counting down
-    if(this.isGameOver || this.isRestarting || this.isCountingDown){ this.player.setVelocity(0,0); return; }
+    // Simple gate: do nothing while counting down or paused
+    if(this.isGameOver || this.isRestarting || this.isCountingDown || this.isPaused){ this.player.setVelocity(0,0); return; }
     // Expire combo if timer ran out
     if((this.combo||0)>0 && now>(this.comboExpireAt||0)) this.resetCombo();
-    // Player input
+    // Player input (only while player is active/alive)
+    const playerAlive = !!(this.player && this.player.active && (!this.player.body || this.player.body.enable!==false));
     const left=this.cursors.left.isDown, right=this.cursors.right.isDown, fire=this.keySpace.isDown;
-    this.player.setVelocityX( (left&&!right)?-300 : (right&&!left)?300 : 0 );
+    if(playerAlive){
+      this.player.setVelocityX( (left&&!right)?-300 : (right&&!left)?300 : 0 );
+    } else {
+      try{ this.player.setVelocity(0,0); }catch(e){}
+    }
     // Keep shield sprite aligned
     if(this.shieldSprite) this.shieldSprite.setPosition(this.player.x,this.player.y).setVisible((this.shieldHits||0)>0 && (this.time.now<(this.shieldUntil||0)));
     // Firing with power-ups
@@ -326,7 +331,7 @@ class GameScene extends Phaser.Scene{
     const dbl   = this.time.now < (this.doubleUntil||0);
     const spread= this.time.now < (this.spreadUntil||0);
     const fireDelay = rapid ? 120 : 250;
-    if(fire && time > (this.lastFired||0)){
+    if(playerAlive && fire && time > (this.lastFired||0)){
       let fired=0; const baseY=this.player.y-22; const used=[];
       let applyPierce = this.isBossFight && !!this.pierceReady; let pierceUsed=false;
       const tryApplyPierce=(b)=>{
@@ -820,6 +825,16 @@ class GameScene extends Phaser.Scene{
 // ---------- Start Scene ----------
 class StartScene extends Phaser.Scene{ constructor(){ super('StartScene'); } create(){ const w=this.scale.width,h=this.scale.height; const t={fontFamily:'monospace', color:'#fff'}; this.add.text(w/2,h/2-120,'SPACE INVADERS',{...t,fontSize:'52px',color:'#0ff'}).setOrigin(0.5); this.add.text(w/2,h/2-70,'Modern Phaser Edition',{...t,fontSize:'18px',color:'#ccc'}).setOrigin(0.5); const best=(()=>{ try{ return parseInt(localStorage.getItem('si_highscore')||'0',10)||0; }catch(e){ return 0; } })(); this.add.text(w/2,h/2-30,'Best (local): '+best,{...t,fontSize:'18px',color:'#bbb'}).setOrigin(0.5); const lbTitle=this.add.text(w/2, h/2+70, 'Global Top 10', {...t,fontSize:'18px',color:'#0ff'}).setOrigin(0.5); const lbText=this.add.text(w/2, h/2+110, 'Loading leaderboard...', {...t,fontSize:'14px',color:'#bbb'}).setOrigin(0.5); const renderList=(list)=>{ if(!list||!list.length){ lbText.setText('No scores yet'); lbText.setOrigin(0.5,0.5); return; } const lines=list.map((r,i)=>{ const d=r.createdAt? new Date(r.createdAt): new Date(); const ds=d.toLocaleDateString(); return `${String(i+1).padStart(2,' ')}. ${r.name.slice(0,16).padEnd(16,' ')}  ${String(r.score).padStart(6,' ')}  ${ds}`; }); lbText.setText(lines.join('\n')); lbText.setOrigin(0.5,0.5); }; const loadOnce=()=>{ try{ if(window.Leaderboard && window.Leaderboard.getTop10){ window.Leaderboard.getTop10().then(renderList).catch(()=> lbText.setText('Leaderboard unavailable')); } else { lbText.setText('Enable leaderboard in index.html'); } }catch(e){ lbText.setText('Leaderboard unavailable'); } }; loadOnce(); // Retry shortly to catch serverTimestamp propagation
  setTimeout(()=>{ if(lbText.text.indexOf('\n')<0 && lbText.text!=='Leaderboard unavailable') loadOnce(); }, 1500);
+ // Refresh Leaderboard button
+ const rbx = Math.min(w-80, w/2 + 220), rby = h/2 + 70;
+ const refreshBg=this.add.rectangle(rbx, rby, 120, 28, 0x0b0b12, 1)
+   .setStrokeStyle(1,0x00ffaa,0.9)
+   .setInteractive({useHandCursor:true});
+ const refreshTx=this.add.text(rbx, rby, 'Refresh', {...t,fontSize:'14px',color:'#0ff'}).setOrigin(0.5);
+ const doRefresh=()=>{ lbText.setText('Loading leaderboard...'); lbText.setOrigin(0.5); loadOnce(); };
+ refreshBg.on('pointerdown', (pointer, lx, ly, event)=>{ if(event&&event.stopPropagation) event.stopPropagation(); doRefresh(); });
+ refreshBg.on('pointerover',()=>{ refreshBg.setFillStyle(0x111522,1); });
+ refreshBg.on('pointerout',()=>{ refreshBg.setFillStyle(0x0b0b12,1); });
  this.add.text(w/2,h/2+10,'Press SPACE or TAP to start',{...t,fontSize:'18px'}).setOrigin(0.5); this.add.text(w/2,h/2+40,'Controls: <- -> move, Space fire, P pause, M mute',{...t,fontSize:'16px',color:'#bbb'}).setOrigin(0.5); this.input.keyboard.once('keydown-SPACE',()=>this.scene.start('GameScene')); this.input.once('pointerdown',()=>this.scene.start('GameScene')); } }
 
 // ---------- Phaser Boot ----------
