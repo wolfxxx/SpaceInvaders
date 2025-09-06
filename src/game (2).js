@@ -60,46 +60,9 @@ class GameScene extends Phaser.Scene{
     // Neon ship (nose + wings + cockpit)
     mk('player',g=>{ g.clear(); g.fillStyle(0x39ff14); g.fillTriangle(16,2, 8,14, 24,14); g.fillStyle(0x00ff88); g.fillTriangle(8,14, 4,30, 12,30); g.fillTriangle(24,14, 20,30, 28,30); g.fillStyle(0xffff66); g.fillRect(15,10,2,6); });
     mk('bullet',g=>{ g.fillStyle(0x00ffff); g.fillRect(14,0,4,18); });
-    // Cooler alien silhouettes (transparent background to avoid boxes)
-    mk('alien1', g=>{ // Neon drone
-      g.clear(); g.fillStyle(0x000000,0); g.fillRect(0,0,32,32);
-      g.fillStyle(0x00e5ff,1);
-      // Angular hull
-      g.fillTriangle(16,4, 7,16, 25,16);
-      // Wings
-      g.fillTriangle(7,16, 3,26, 12,26);
-      g.fillTriangle(25,16, 20,26, 29,26);
-      // Core glow
-      g.fillStyle(0x99ffff,1); g.fillRect(15,10,2,6);
-      // Outline
-      g.lineStyle(1,0x66ffff,0.7); g.strokeTriangle(16,4, 7,16, 25,16);
-    });
-    mk('alien2', g=>{ // Saucer
-      g.clear(); g.fillStyle(0x000000,0); g.fillRect(0,0,32,32);
-      // Hull
-      g.fillStyle(0xffe766,1); g.fillCircle(16,14,8);
-      g.fillStyle(0xffcc33,1); g.fillRect(8,16,16,4);
-      // Dome
-      g.fillStyle(0xffffaa,1); g.fillCircle(16,11,5);
-      // Landing struts
-      g.fillStyle(0xffd14a,1); g.fillRect(6,20,4,2); g.fillRect(22,20,4,2);
-      // Rim outline
-      g.lineStyle(1,0xfff199,0.7); g.strokeCircle(16,14,8.5);
-    });
-    mk('alien3', g=>{ // Beetle
-      g.clear(); g.fillStyle(0x000000,0); g.fillRect(0,0,32,32);
-      // Body
-      g.fillStyle(0x7a49ff,1); g.fillCircle(16,16,9);
-      g.fillStyle(0x9b66ff,1); g.fillCircle(16,14,6);
-      // Legs
-      g.fillStyle(0x7a49ff,1);
-      g.fillTriangle(6,18, 10,16, 10,22);
-      g.fillTriangle(26,18, 22,16, 22,22);
-      // Mandibles
-      g.fillStyle(0x5522aa,1); g.fillTriangle(14,20, 16,24, 15,22); g.fillTriangle(16,24, 18,20, 17,22);
-      // Outline
-      g.lineStyle(1,0xbbb0ff,0.6); g.strokeCircle(16,16,9.5);
-    });
+    mk('alien1',g=>{ g.fillStyle(0x00ffff); g.fillRect(6,8,20,16); g.fillRect(4,24,8,4); g.fillRect(20,24,8,4); });
+    mk('alien2',g=>{ g.fillStyle(0xffff66); g.fillRect(4,8,24,16); g.fillRect(0,12,4,8); g.fillRect(28,12,4,8); });
+    mk('alien3',g=>{ g.fillStyle(0x8844ff); g.fillCircle(16,16,12); g.fillRect(8,28,16,4); });
     mk('particle',g=>{ g.fillStyle(0xffd700); g.fillRect(0,0,4,4); });
     // Soft round particle for subtle trails (fixes missing 'soft' texture placeholder)
     mk('soft', g=>{
@@ -113,32 +76,11 @@ class GameScene extends Phaser.Scene{
     mk('powerup',g=>{ g.clear(); g.fillStyle(0x000000,0); g.fillRect(0,0,32,32); g.lineStyle(3,0xffffff,0.8); g.strokeCircle(16,16,9); g.fillStyle(0xffffff,1); g.fillCircle(16,16,5); g.lineStyle(1,0xffffff,0.6); g.strokeCircle(16,16,12); });
     mk('shieldBlock',g=>{ g.fillStyle(0x00aa00); g.fillRect(0,0,12,8); });
     mk('shieldRing',g=>{ g.lineStyle(2,0x00ffaa,1); g.strokeCircle(16,16,14); });
-    // Boss: alien skull-like shape with horns, eyes, mandibles (less boxy)
-    mk('boss',g=>{
-      g.clear();
-      g.fillStyle(0x000000,0); g.fillRect(0,0,32,32);
-      // Head base
-      g.fillStyle(0x1a0e2a,1); g.fillCircle(16,16,10);
-      // Forehead plate
-      g.fillStyle(0x2a1840,1); g.fillTriangle(10,10, 22,10, 16,4);
-      // Horns
-      g.fillStyle(0x382050,1); g.fillTriangle(7,9, 11,3, 12,11); g.fillTriangle(20,11, 21,3, 25,9);
-      // Cheekbones / ridges
-      g.fillStyle(0x2a1840,1); g.fillTriangle(6,18, 12,13, 12,22); g.fillTriangle(20,13, 26,18, 20,22);
-      // Mandibles
-      g.fillStyle(0x3b0f1f,1); g.fillTriangle(12,20, 16,26, 14,22); g.fillTriangle(16,26, 20,20, 18,22);
-      // Eyes (sockets + pupils)
-      g.fillStyle(0x000000,0.8); g.fillCircle(12,16,3); g.fillCircle(20,16,3);
-      g.fillStyle(0xff66aa,1); g.fillCircle(12,16,1.6); g.fillCircle(20,16,1.6);
-      // Light outline
-      g.lineStyle(1,0x7a4aff,0.6); g.strokeCircle(16,16,10.5);
-    });
+    mk('boss',g=>{ g.fillStyle(0x222222); g.fillRect(0,0,32,16); g.fillStyle(0xff4444); g.fillRect(2,2,28,12); g.fillStyle(0xffff00); g.fillRect(8,6,16,4); });
     mk('bossBullet',g=>{ g.clear(); g.fillStyle(0x000000,0); g.fillRect(0,0,32,32); g.fillStyle(0xffaa00); g.fillCircle(16,16,6); });
     // Dedicated alien bullet sprite (small opaque amber orb, no halo)
     mk('alienBullet',g=>{ g.clear(); g.fillStyle(0x000000,0); g.fillRect(0,0,32,32); g.fillStyle(0xffaa00,1); g.fillCircle(16,16,4); });
     mk('pierceBullet',g=>{ g.clear(); g.fillStyle(0x000000,0); g.fillRect(0,0,32,32); g.lineStyle(3,0xff66ff,1); g.strokeCircle(16,12,8); g.fillStyle(0xffb3ff,1); g.fillCircle(16,12,4); g.lineStyle(1,0xffffff,0.6); g.strokeCircle(16,12,12); });
-    // Shockwave ring for juicy kills
-    mk('shock', g=>{ g.clear(); g.lineStyle(2,0x00ffff,0.85); g.strokeCircle(16,16,10); });
   }
 
   // Spawn a one-shot particle burst that cleans itself up
@@ -209,15 +151,6 @@ class GameScene extends Phaser.Scene{
     this.muteText=this.add.text(780,12,'',f).setOrigin(1,0).setAlpha(0.8);
     // Piercing ready HUD tag (shown during boss only)
     this.pierceReadyText=this.add.text(16,52,'', {...f, fontSize:'16px', color:'#ff66ff'});
-    // Subtle neon stroke + shadow for readability
-    try{ this.scoreText.setStroke('#00ffaa', 1).setShadow(0,1,'#002222',2,true,true); }catch(e){}
-    try{ this.livesText.setStroke('#00ffaa', 1).setShadow(0,1,'#002222',2,true,true); }catch(e){}
-    try{ this.levelText.setStroke('#00ffaa', 1).setShadow(0,1,'#002222',2,true,true); }catch(e){}
-    try{ this.highText.setStroke('#00ffaa', 1).setShadow(0,1,'#002222',2,true,true); }catch(e){}
-    try{ this.comboText.setStroke('#00ffaa', 1).setShadow(0,1,'#002222',2,true,true); }catch(e){}
-    try{ this.infoText.setStroke('#00ffaa', 2).setShadow(0,2,'#002222',4,true,true); }catch(e){}
-    try{ this.muteText.setStroke('#00ffaa', 1).setShadow(0,1,'#002222',2,true,true); }catch(e){}
-    try{ this.pierceReadyText.setStroke('#ff66ff', 1).setShadow(0,1,'#220022',2,true,true); }catch(e){}
     this.updateMuteText(Sfx.isMuted());
 
     // Visuals
@@ -247,14 +180,6 @@ class GameScene extends Phaser.Scene{
     }
   }
 
-  // Quick muzzle flash at given point using soft sprite
-  spawnMuzzle(x, y){
-    try{
-      const img = this.add.image(x, y, 'soft').setBlendMode('ADD').setDepth(9).setAlpha(0.9).setScale(0.6);
-      this.tweens.add({ targets: img, alpha: {from:0.9,to:0}, scale: {from:0.6,to:1.3}, duration:140, ease:'Cubic.Out', onComplete:()=>img.destroy() });
-    }catch(e){}
-  }
-
   // ---------- Stars ----------
   initStars(){
     const add=(tint,speed,lifespan,qty)=> this.add.particles(0,0,'particle',{
@@ -262,29 +187,6 @@ class GameScene extends Phaser.Scene{
     this.starFar=add(0x99ffff,18,6000,2);
     this.starMid=add(0x55ffff,40,4500,2);
     this.starNear=add(0x11ffff,90,3200,2);
-    // Occasional shooting star streaks for extra motion parallax
-    try{
-      this.time.addEvent({ delay: 2800, loop: true, callback: ()=>{ if(Math.random()<0.6) this.spawnShootingStar(); } });
-    }catch(e){}
-  }
-
-  // One-off fast streak across the sky
-  spawnShootingStar(){
-    try{
-      const y = Phaser.Math.Between(40, 320);
-      const p = this.add.particles(-10, y, 'particle', {
-        speedX: { min: 420, max: 620 },
-        speedY: { min: -40, max: 40 },
-        lifespan: 900,
-        scale: { start: 1.2, end: 0 },
-        quantity: 1,
-        emitting: false,
-        blendMode: 'ADD',
-        tint: 0x99ffff
-      });
-      p.explode(1);
-      this.time.delayedCall(1400, ()=>{ try{ p.destroy(); }catch(e){} });
-    }catch(e){}
   }
 
   // ---------- Waves ----------
@@ -314,9 +216,7 @@ class GameScene extends Phaser.Scene{
   createBoss(){
     this.isBossFight=true;
     this.boss=this.physics.add.sprite(400,140,'boss').setImmovable(true).setDepth(5);
-    // Slightly wider boss for a more imposing silhouette
-    this.boss.setScale(4.5,3);
-    if(this.boss.body&&this.boss.body.setSize) this.boss.body.setSize(135,70,true);
+    this.boss.setScale(4,3); if(this.boss.body&&this.boss.body.setSize) this.boss.body.setSize(120,70,true);
     this.bossHp=Math.floor(60*(1+(this.level-1)*0.25)); this.bossMaxHp=this.bossHp;
     // Core movement params
     this.bossHomeY = 140; // ensure defined to avoid NaN Y
@@ -330,8 +230,7 @@ class GameScene extends Phaser.Scene{
     // Overcharge (piercing) meter for boss fights
     this.bossCharge=0; this.bossChargeMax=12; this.pierceReady=false;
     this.bossChargeBar=this.add.graphics(); this.updateBossChargeBar();
-    // Match logical hit area to new width
-    this.bossHit=this.add.rectangle(this.boss.x,this.boss.y,135,70,0x00ff00,0); this.physics.add.existing(this.bossHit,true);
+    this.bossHit=this.add.rectangle(this.boss.x,this.boss.y,120,70,0x00ff00,0); this.physics.add.existing(this.bossHit,true);
     this.bossIsEnraged = false;
     this.bossEnrageTimer = 0;
     this.time.delayedCall(0,()=>this.setupColliders());
@@ -352,34 +251,6 @@ class GameScene extends Phaser.Scene{
       blendMode: 'ADD',
       emitting: false
     });
-    // Constant, subtle exhaust glow while boss moves (boosted during dashes)
-    try{
-      const mgr = this.add.particles(0,0,'soft');
-      const em = mgr.createEmitter({
-        follow: this.boss,
-        speed: { min: -20, max: 20 },
-        angle: { min: 80, max: 100 },
-        lifespan: 500,
-        scale: { start: 1.2, end: 0 },
-        alpha: { start: 0.4, end: 0 },
-        frequency: 110,
-        quantity: 1,
-        tint: 0xfff3a0,
-        blendMode: 'ADD'
-      });
-      this.bossExhaust = mgr; this.bossExhaustEm = em;
-    }catch(e){}
-    // Evil eye glows (follow boss with offsets)
-    try{
-      const sx=this.boss.scaleX||1, sy=this.boss.scaleY||1;
-      // Eye positions inside 32x32 texture space
-      this._bossEyeDX = 4; // distance from center in texture space
-      this._bossEyeDY = 0; // relative to center vertically (centered)
-      this.bossEyeL = this.add.image(this.boss.x - this._bossEyeDX*sx, this.boss.y + this._bossEyeDY*sy, 'soft')
-        .setBlendMode('ADD').setTint(0xff66aa).setAlpha(0.75).setScale(0.5).setDepth(6);
-      this.bossEyeR = this.add.image(this.boss.x + this._bossEyeDX*sx, this.boss.y + this._bossEyeDY*sy, 'soft')
-        .setBlendMode('ADD').setTint(0xff66aa).setAlpha(0.75).setScale(0.5).setDepth(6);
-    }catch(e){}
   }
 
   updateBossHealthBar(){ if(!this.bossHealth) return; const g=this.bossHealth; g.clear(); const x=100,y=70,w=600,h=10; g.fillStyle(0x222222,0.6).fillRect(x,y,w,h); const pct=this.bossMaxHp>0?this.bossHp/this.bossMaxHp:0; g.fillStyle(0xff5555,1).fillRect(x+1,y+1,Math.floor((w-2)*pct),h-2); g.lineStyle(1,0xffffff,0.6).strokeRect(x,y,w,h); }
@@ -518,13 +389,10 @@ class GameScene extends Phaser.Scene{
     this.lastFired=0;
     // Remove old boss artifacts if any
     try{ if(this.bossHit){ this.bossHit.destroy(); this.bossHit=null; } }catch(e){}
-    try{ if(this.bossEyeL){ this.bossEyeL.destroy(); this.bossEyeL=null; } }catch(e){}
-    try{ if(this.bossEyeR){ this.bossEyeR.destroy(); this.bossEyeR=null; } }catch(e){}
     try{ if(this.bossHealth){ this.bossHealth.clear(); } }catch(e){}
     try{ if(this.bossChargeBar){ this.bossChargeBar.clear(); } }catch(e){}
     this.pierceReady=false; this.bossCharge=0;
     try{ if(this.bossDashEmitter){ this.bossDashEmitter.stop&&this.bossDashEmitter.stop(); const mgr=this.bossDashEmitter.manager||this.bossDashEmitter; mgr.destroy&&mgr.destroy(); this.bossDashEmitter=null; } }catch(e){}
-    try{ if(this.bossExhaust){ const mgr=this.bossExhaust; try{ mgr.emitters.each(e=>{ try{ e.stop&&e.stop(); e.remove&&e.remove(); }catch(_){} }); }catch(_){} mgr.destroy&&mgr.destroy(); this.bossExhaust=null; this.bossExhaustEm=null; } }catch(e){}
     try{ if(this._bossAfterTimer){ this._bossAfterTimer.remove(false); this._bossAfterTimer=null; } }catch(e){}
     // Destroy old colliders so new groups can register cleanly
     if(this._colliders){ this._colliders.forEach(c=>{ try{ c.destroy(); }catch(e){} }); this._colliders=[]; }
@@ -645,8 +513,8 @@ class GameScene extends Phaser.Scene{
         const pair=this.twoFreshBullets(used);
         if(pair.length>=2){
           let [L,R]=pair; if(L===R){ R=this.playerBullets.create(0,0,'bullet'); }
-          L.fire(this.player.x-18, baseY, -620, 'bullet'); L.owner='player'; L.passShieldUntil=this.time.now+300; this.spawnMuzzle(this.player.x-18, baseY+3);
-          R.fire(this.player.x+18, baseY, -620, 'bullet'); R.owner='player'; R.passShieldUntil=this.time.now+300; this.spawnMuzzle(this.player.x+18, baseY+3);
+          L.fire(this.player.x-18, baseY, -620, 'bullet'); L.owner='player'; L.passShieldUntil=this.time.now+300;
+          R.fire(this.player.x+18, baseY, -620, 'bullet'); R.owner='player'; R.passShieldUntil=this.time.now+300;
           // Apply pierce to the first available muzzle
           tryApplyPierce(L); tryApplyPierce(R);
           fired+=2;
@@ -654,10 +522,10 @@ class GameScene extends Phaser.Scene{
           const b=pair[0];
           // Fallback: alternate single muzzle if pool somehow constrained
           this._muzzleRightFirst=!this._muzzleRightFirst; const x=this._muzzleRightFirst?this.player.x+18:this.player.x-18;
-          b.fire(x, baseY, -620, 'bullet'); b.owner='player'; b.passShieldUntil=this.time.now+300; this.spawnMuzzle(x, baseY+3); tryApplyPierce(b); fired++;
+          b.fire(x, baseY, -620, 'bullet'); b.owner='player'; b.passShieldUntil=this.time.now+300; tryApplyPierce(b); fired++;
         }
       } else {
-        const b=this.allocBulletUnique(used); if(b){ b.fire(this.player.x, baseY, -600, 'bullet'); b.owner='player'; b.passShieldUntil=this.time.now+300; this.spawnMuzzle(this.player.x, baseY+3); tryApplyPierce(b); fired++; }
+        const b=this.allocBulletUnique(used); if(b){ b.fire(this.player.x, baseY, -600, 'bullet'); b.owner='player'; b.passShieldUntil=this.time.now+300; tryApplyPierce(b); fired++; }
       }
       // Spread pair (ensure two distinct bullets like double-shot)
       if(spread){
@@ -665,8 +533,8 @@ class GameScene extends Phaser.Scene{
         if(pair.length>=2){
           let [l2,r2]=pair;
           if(l2===r2){ r2=this.playerBullets.create(0,0,'bullet'); }
-          l2.fire(this.player.x-16, baseY+4, -600,'bullet'); l2.owner='player'; l2.setVelocityX(-200); l2.passShieldUntil=this.time.now+450; this.spawnMuzzle(this.player.x-16, baseY+6);
-          r2.fire(this.player.x+16, baseY+4, -600,'bullet'); r2.owner='player'; r2.setVelocityX(200);  r2.passShieldUntil=this.time.now+450; this.spawnMuzzle(this.player.x+16, baseY+6);
+          l2.fire(this.player.x-16, baseY+4, -600,'bullet'); l2.owner='player'; l2.setVelocityX(-200); l2.passShieldUntil=this.time.now+450;
+          r2.fire(this.player.x+16, baseY+4, -600,'bullet'); r2.owner='player'; r2.setVelocityX(200);  r2.passShieldUntil=this.time.now+450;
           tryApplyPierce(l2); tryApplyPierce(r2);
           fired+=2;
         } else if(pair.length===1){
@@ -675,8 +543,7 @@ class GameScene extends Phaser.Scene{
           const b = pair[0];
           const xoff = this._spreadRightFirst ? 16 : -16;
           const vx   = this._spreadRightFirst ? 200 : -200;
-          const mx = this.player.x + xoff;
-          b.fire(mx, baseY+4, -600,'bullet'); b.owner='player'; b.setVelocityX(vx); b.passShieldUntil=this.time.now+450; this.spawnMuzzle(mx, baseY+6); tryApplyPierce(b); fired++;
+          b.fire(this.player.x + xoff, baseY+4, -600,'bullet'); b.owner='player'; b.setVelocityX(vx); b.passShieldUntil=this.time.now+450; tryApplyPierce(b); fired++;
         }
       }
       if(fired>0){ Sfx.beep(900,0.06,'square',0.03); this.lastFired = time + fireDelay; }
@@ -821,19 +688,9 @@ class GameScene extends Phaser.Scene{
         this.bossNextDashAt = time + Phaser.Math.Between(2800, 5600);
         // Subtle cue
         Sfx.beep(1100, 0.03, 'triangle', 0.025);
-        // Enable dash trail and boost exhaust
-        try{
-          if(this.bossDashEmitter && this.bossDashEmitter.emitters){ this.bossDashEmitter.emitters.each(e=>{ if(e) e.on = true; }); }
-          if(this.bossExhaustEm){ this.bossExhaustEm.frequency = 65; this.bossExhaustEm.alpha = { start: 0.6, end: 0 }; }
-        }catch(e){}
       }
       if(this._bossDashing && time > this.bossDashUntil){
         this._bossDashing = false;
-        // Disable dash trail and restore exhaust
-        try{
-          if(this.bossDashEmitter && this.bossDashEmitter.emitters){ this.bossDashEmitter.emitters.each(e=>{ if(e) e.on = false; }); }
-          if(this.bossExhaustEm){ this.bossExhaustEm.frequency = 110; this.bossExhaustEm.alpha = { start: 0.4, end: 0 }; }
-        }catch(e){}
       }
       const dashMul = this._bossDashing ? this.bossDashMult : 1.0;
       this.boss.x += (this.bossSpeedX*dashMul*(delta/1000))*this.bossMoveDir;
@@ -843,16 +700,6 @@ class GameScene extends Phaser.Scene{
       if(!this.boss.visible) this.boss.setVisible(true);
       if(!this.boss.active) this.boss.setActive(true);
       if(this.bossHit){ this.bossHit.setPosition(this.boss.x,this.boss.y); if(this.bossHit.body&&this.bossHit.body.updateFromGameObject) this.bossHit.body.updateFromGameObject(); }
-      // Update eye glow positions + subtle pulse
-      try{
-        if(this.bossEyeL && this.bossEyeR){
-          const sx=this.boss.scaleX||1, sy=this.boss.scaleY||1;
-          const pulse = 0.65 + 0.20*Math.sin(time*0.006);
-          const dy = (this._bossEyeDY||0) + Math.sin(time*0.004+1.8)*0.2; // tiny bob
-          this.bossEyeL.setPosition(this.boss.x - (this._bossEyeDX||4)*sx, this.boss.y + dy*sy).setAlpha(pulse);
-          this.bossEyeR.setPosition(this.boss.x + (this._bossEyeDX||4)*sx, this.boss.y + dy*sy).setAlpha(pulse);
-        }
-      }catch(e){}
       // Fire
       if(time>(this.bossFireTimer||0)){
         const pattern=(Math.floor(time/2000)%2);
@@ -938,30 +785,19 @@ class GameScene extends Phaser.Scene{
     alien.health=(alien.health||1)-1;
     if(alien.health>0){
       alien.setTint(0xff6666);
-      // Quick scale punch + subtle camera tick
-      try{ this.tweens.add({ targets: alien, scaleX:{from:1,to:1.12}, scaleY:{from:1,to:1.12}, yoyo:true, duration:80, ease:'Sine.Out' }); }catch(e){}
-      try{ this.cameras.main.shake(60, 0.0015); }catch(e){}
       this.infoPopup(alien.x, alien.y-10, 'HIT', '#ffaaaa');
       this.time.delayedCall(120,()=>alien.clearTint());
       return;
     }
     // Kill
     alien.disableBody(true,true);
-    // Shockwave ring + mild camera shake
-    try{ const ring=this.add.image(alien.x, alien.y, 'shock').setBlendMode('ADD').setDepth(8).setAlpha(0.85).setScale(0.6); this.tweens.add({ targets:ring, alpha:0, scale:2.0, duration:280, ease:'Cubic.Out', onComplete:()=>ring.destroy() }); }catch(e){}
-    try{ this.cameras.main.shake(80, 0.002); }catch(e){}
     // Combo bump then score with multiplier
     const prevMult=this.comboMult;
     this.bumpCombo();
     const base=10; const pts=base*this.comboMult;
     this.addScore(pts, alien.x, alien.y-12, '#ffee88');
-    if(this.comboMult>prevMult){
-      this.infoPopup(alien.x, alien.y-28, 'x'+this.comboMult, '#ffdd55');
-      try{ this.tweens.add({ targets: this.comboText, scale: { from: 1.0, to: 1.2 }, yoyo: true, duration: 120 }); }catch(e){}
-    }
-    // Color-tinted shards by alien type for flavor
-    let _tint=0xffffff; try{ const t=alien.type || (alien.texture && alien.texture.key); if(t==='alien1') _tint=0x00e5ff; else if(t==='alien2') _tint=0xffe766; else if(t==='alien3') _tint=0x7a49ff; }catch(e){}
-    const p=this.add.particles(alien.x,alien.y,'particle',{speed:{min:-120,max:120}, lifespan:450, scale:{start:1.1,end:0}, emitting:false, blendMode:'ADD', tint:_tint}); p.explode(24);
+    if(this.comboMult>prevMult){ this.infoPopup(alien.x, alien.y-28, 'x'+this.comboMult, '#ffdd55'); }
+    const p=this.add.particles(alien.x,alien.y,'particle',{speed:{min:-100,max:100}, lifespan:400, scale:{start:1,end:0}, emitting:false, blendMode:'ADD'}); p.explode(20);
     Sfx.explosion();
     if(Math.random()<0.14) this.dropPowerup(alien.x, alien.y);
     if(this.aliens.countActive(true)===0) this.beginNextLevel();
@@ -1090,8 +926,6 @@ class GameScene extends Phaser.Scene{
   killBoss(){
     if(!this.boss || !this.boss.active) return;
     this.boss.disableBody(true, true);
-    try{ if(this.bossEyeL){ this.bossEyeL.destroy(); this.bossEyeL=null; } }catch(e){}
-    try{ if(this.bossEyeR){ this.bossEyeR.destroy(); this.bossEyeR=null; } }catch(e){}
     const centerX = this.boss.x;
     const centerY = this.boss.y;
     // Award extra life with a clear celebration
@@ -1285,7 +1119,7 @@ class GameScene extends Phaser.Scene{
     }catch(e){}
     this.hideNameEntryOverlay();
   }
-  restartGame(){ if(this.isRestarting) return; this.isRestarting=true; try{ if(this.bossHit) this.bossHit.destroy(); }catch(e){} try{ if(this.bossEyeL){ this.bossEyeL.destroy(); this.bossEyeL=null; } }catch(e){} try{ if(this.bossEyeR){ this.bossEyeR.destroy(); this.bossEyeR=null; } }catch(e){} try{ if(this.bossHealth) this.bossHealth.destroy(); }catch(e){} try{ if(this.bossDashEmitter){ this.bossDashEmitter.stop&&this.bossDashEmitter.stop(); const mgr=this.bossDashEmitter.manager||this.bossDashEmitter; mgr.destroy&&mgr.destroy(); this.bossDashEmitter=null; } }catch(e){} try{ if(this.bossExhaust){ const mgr=this.bossExhaust; try{ mgr.emitters.each(e=>{ try{ e.stop&&e.stop(); e.remove&&e.remove(); }catch(_){} }); }catch(_){} mgr.destroy&&mgr.destroy(); this.bossExhaust=null; this.bossExhaustEm=null; } }catch(e){} this.scene.start('StartScene'); }
+  restartGame(){ if(this.isRestarting) return; this.isRestarting=true; try{ if(this.bossHit) this.bossHit.destroy(); }catch(e){} try{ if(this.bossHealth) this.bossHealth.destroy(); }catch(e){} try{ if(this.bossDashEmitter){ this.bossDashEmitter.stop&&this.bossDashEmitter.stop(); const mgr=this.bossDashEmitter.manager||this.bossDashEmitter; mgr.destroy&&mgr.destroy(); this.bossDashEmitter=null; } }catch(e){} this.scene.start('StartScene'); }
   // Quick afterimage sprite for boss dashes
   spawnBossAfterimage(){ if(!this.boss || !this.boss.active) return; const img=this.add.image(this.boss.x,this.boss.y,'boss').setScale(4,3).setAlpha(0.35).setDepth(4).setTint(0xfff3a0); this.tweens.add({ targets: img, alpha: 0, duration: 200, onComplete: ()=> img.destroy() }); }
 
@@ -1296,7 +1130,6 @@ class GameScene extends Phaser.Scene{
     const on = !this.isPaused;
     setEmit(this.starFar,on); setEmit(this.starMid,on); setEmit(this.starNear,on);
     setEmit(this.bossDashEmitter,on);
-    setEmit(this.bossExhaust,on);
     // Shared aura manager
     setEmit(this.powerupAura,on);
   }
