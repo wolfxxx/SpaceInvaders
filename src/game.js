@@ -64,6 +64,14 @@ class GameScene extends Phaser.Scene{
     mk('alien2',g=>{ g.fillStyle(0xffff66); g.fillRect(4,8,24,16); g.fillRect(0,12,4,8); g.fillRect(28,12,4,8); });
     mk('alien3',g=>{ g.fillStyle(0x8844ff); g.fillCircle(16,16,12); g.fillRect(8,28,16,4); });
     mk('particle',g=>{ g.fillStyle(0xffd700); g.fillRect(0,0,4,4); });
+    // Soft round particle for subtle trails (fixes missing 'soft' texture placeholder)
+    mk('soft', g=>{
+      g.clear();
+      // draw a soft-ish white disc by layering alpha circles
+      g.fillStyle(0xffffff, 0.18); g.fillCircle(16,16,9);
+      g.fillStyle(0xffffff, 0.35); g.fillCircle(16,16,6);
+      g.fillStyle(0xffffff, 0.6);  g.fillCircle(16,16,3);
+    });
     // Powerup: distinctive neon orb with ring to avoid alien-like shapes
     mk('powerup',g=>{ g.clear(); g.fillStyle(0x000000,0); g.fillRect(0,0,32,32); g.lineStyle(3,0xffffff,0.8); g.strokeCircle(16,16,9); g.fillStyle(0xffffff,1); g.fillCircle(16,16,5); g.lineStyle(1,0xffffff,0.6); g.strokeCircle(16,16,12); });
     mk('shieldBlock',g=>{ g.fillStyle(0x00aa00); g.fillRect(0,0,12,8); });
@@ -854,6 +862,13 @@ class GameScene extends Phaser.Scene{
     if(!block||!block.active) return;
     // Let freshly fired player bullets pass for a brief window
     if(bullet.owner==='player' && bullet.passShieldUntil && this.time.now<bullet.passShieldUntil) return;
+    // Immediately kill bullet and any attached effects to avoid lingering visuals
+    try{
+      if(bullet._trail){ bullet._trail.stop&&bullet._trail.stop(); bullet._trail.remove&&bullet._trail.remove(); bullet._trail=null; }
+    }catch(e){}
+    try{
+      if(bullet._pierceEmitter){ const mgr=bullet._pierceEmitter.manager||bullet._pierceEmitter; mgr.stop&&mgr.stop(); mgr.destroy&&mgr.destroy(); bullet._pierceEmitter=null; }
+    }catch(e){}
     if(bullet.disableBody) bullet.disableBody(true,true);
     bullet.setActive(false).setVisible(false);
     block.hp=(block.hp||1)-1;
@@ -1194,4 +1209,3 @@ const lbText=this.add.text(listX, lbTitle.y+26, 'Loading leaderboard...', {...t,
 // ---------- Phaser Boot ----------
 const config={ type:Phaser.AUTO, width:800, height:600, backgroundColor:'#000', physics:{ default:'arcade', arcade:{ gravity:{y:0}, debug:false } }, pixelArt:true, scale:{ mode:Phaser.Scale.FIT, autoCenter:Phaser.Scale.CENTER_BOTH }, scene:[StartScene, GameScene] };
 new Phaser.Game(config);
-
