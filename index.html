@@ -14,6 +14,8 @@
     canvas { image-rendering: pixelated; border:2px solid #333; box-shadow:0 0 20px #0ff; }
     #scanlines { position:fixed; inset:0; pointer-events:none; opacity:.16; mix-blend-mode:screen;
       background-image:repeating-linear-gradient(0deg, rgba(255,255,255,.09) 0px, rgba(255,255,255,.09) 1px, transparent 1px, transparent 3px); }
+    #vignette { position:fixed; inset:0; pointer-events:none;
+      background:radial-gradient(ellipse at center, rgba(0,0,0,0) 40%, rgba(0,0,0,0.35) 100%); }
   </style>
   <!-- Global leaderboard (Firebase) -->
   <script>
@@ -43,6 +45,7 @@
 </head>
 <body>
   <div id="scanlines"></div>
+  <div id="vignette"></div>
   <div id="volume-control" style="position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:100;">
     <label for="volume" style="color:#fff; font-family:monospace; margin-right:10px;">Volume:</label>
     <input type="range" id="volume" name="volume" min="0" max="100" value="50">

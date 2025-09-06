@@ -1,4 +1,4 @@
-// Modern Space Invaders — rebuilt compact version (gameplay restored)
+﻿// Modern Space Invaders — rebuilt compact version (gameplay restored)
 // Notes: One-file game logic to keep changes traceable. No external assets.
 
 // ---------- Lightweight SFX + Music ----------
@@ -30,13 +30,25 @@ class Bullet extends Phaser.Physics.Arcade.Sprite{
     this.setTexture(texture);
     if (this.body && this.body.reset) this.body.reset(x,y); else this.setPosition(x,y);
     this.setActive(true).setVisible(true);
-    if (this.body) this.body.enable = true;
+    if (this.body) {
+      this.body.enable = true;
+      this.body.debugShowBody = false;
+      this.body.debugShowVelocity = false;
+    }
     // Tight hitbox for reliable overlaps with fast movement
     if (this.body && this.body.setSize) this.body.setSize(6, 18, true);
     this.setVelocity(0,vy);
     this.setDepth(10);
   }
-  preUpdate(t,dt){ super.preUpdate(t,dt); if(this.y<-20 || this.y>620){ this.setActive(false).setVisible(false); if(this.body) this.body.enable=false; } }
+  preUpdate(t,dt){
+    super.preUpdate(t,dt);
+    if(this.y<-20 || this.y>620){
+      this.setActive(false).setVisible(false);
+      if(this.body) this.body.enable=false;
+      try{ if(this._trail){ this._trail.stop&&this._trail.stop(); this._trail.remove&&this._trail.remove(); this._trail=null; } }catch(e){}
+      try{ if(this._pierceEmitter){ const mgr=this._pierceEmitter.manager||this._pierceEmitter; mgr.destroy&&mgr.destroy(); this._pierceEmitter=null; } }catch(e){}
+    }
+  }
 }
 
 // ---------- Game Scene ----------
@@ -52,12 +64,27 @@ class GameScene extends Phaser.Scene{
     mk('alien2',g=>{ g.fillStyle(0xffff66); g.fillRect(4,8,24,16); g.fillRect(0,12,4,8); g.fillRect(28,12,4,8); });
     mk('alien3',g=>{ g.fillStyle(0x8844ff); g.fillCircle(16,16,12); g.fillRect(8,28,16,4); });
     mk('particle',g=>{ g.fillStyle(0xffd700); g.fillRect(0,0,4,4); });
-    mk('powerup',g=>{ g.fillStyle(0x00ffff); g.fillTriangle(16,2, 2,16, 30,16); g.fillStyle(0x0088ff); g.fillTriangle(16,30, 2,16, 30,16); });
+    // Powerup: distinctive neon orb with ring to avoid alien-like shapes
+    mk('powerup',g=>{ g.clear(); g.fillStyle(0x000000,0); g.fillRect(0,0,32,32); g.lineStyle(3,0xffffff,0.8); g.strokeCircle(16,16,9); g.fillStyle(0xffffff,1); g.fillCircle(16,16,5); g.lineStyle(1,0xffffff,0.6); g.strokeCircle(16,16,12); });
     mk('shieldBlock',g=>{ g.fillStyle(0x00aa00); g.fillRect(0,0,12,8); });
     mk('shieldRing',g=>{ g.lineStyle(2,0x00ffaa,1); g.strokeCircle(16,16,14); });
     mk('boss',g=>{ g.fillStyle(0x222222); g.fillRect(0,0,32,16); g.fillStyle(0xff4444); g.fillRect(2,2,28,12); g.fillStyle(0xffff00); g.fillRect(8,6,16,4); });
-    mk('bossBullet',g=>{ g.fillStyle(0xffaa00); g.fillCircle(16,16,6); });
+    mk('bossBullet',g=>{ g.clear(); g.fillStyle(0x000000,0); g.fillRect(0,0,32,32); g.fillStyle(0xffaa00); g.fillCircle(16,16,6); });
+    // Dedicated alien bullet sprite (small opaque amber orb, no halo)
+    mk('alienBullet',g=>{ g.clear(); g.fillStyle(0x000000,0); g.fillRect(0,0,32,32); g.fillStyle(0xffaa00,1); g.fillCircle(16,16,4); });
     mk('pierceBullet',g=>{ g.clear(); g.fillStyle(0x000000,0); g.fillRect(0,0,32,32); g.lineStyle(3,0xff66ff,1); g.strokeCircle(16,12,8); g.fillStyle(0xffb3ff,1); g.fillCircle(16,12,4); g.lineStyle(1,0xffffff,0.6); g.strokeCircle(16,12,12); });
+  }
+
+  // Spawn a one-shot particle burst that cleans itself up
+  burst(x, y, textureKey='particle', config={}, quantity=20, ttl=1000){
+    try{
+      const mgr = this.add.particles(x, y, textureKey, { emitting:false, blendMode:'ADD', ...config });
+      if(mgr && mgr.explode) mgr.explode(quantity);
+      this._tempBursts = this._tempBursts || [];
+      this._tempBursts.push(mgr);
+      this.time.delayedCall(ttl, ()=>{ try{ const arr=this._tempBursts||[]; const i=arr.indexOf(mgr); if(i>=0) arr.splice(i,1); mgr.destroy&&mgr.destroy(); }catch(e){} });
+      return mgr;
+    }catch(e){ return null; }
   }
 
   create(){
@@ -66,7 +93,20 @@ class GameScene extends Phaser.Scene{
     // Begin with countdown gate active to prevent any early movement
     this.isCountingDown = true;
     this.physics.world.setBoundsCollision(true,true,true,true);
-    try { this.physics.world.resume(); } catch(e) {}
+    // Hard-disable any Arcade Physics debug overlays (green boxes) just in case
+    try{
+      // Force all known flags off
+      if(this.physics && this.physics.config) this.physics.config.debug = false;
+      if(this.sys && this.sys.game && this.sys.game.config && this.sys.game.config.physics && this.sys.game.config.physics.arcade){
+        this.sys.game.config.physics.arcade.debug = false;
+      }
+      const w = this.physics.world;
+      w.drawDebug = false;
+      w.debug = false;
+      if(w.defaults){ w.defaults.debugShowBody=false; w.defaults.debugShowVelocity=false; }
+      // Nuke the debug graphic entirely if it exists
+      if(w.debugGraphic){ w.debugGraphic.clear(); w.debugGraphic.setVisible(false); w.debugGraphic.destroy(); w.debugGraphic=null; }
+    }catch(e){}
     // Help Arcade overlap detection for fast bullets
     try { this.physics.world.OVERLAP_BIAS = 8; } catch(e) {}
 
@@ -106,7 +146,8 @@ class GameScene extends Phaser.Scene{
     this.updateMuteText(Sfx.isMuted());
 
     // Visuals
-    this.createShields();
+    // Regenerate shields each level; boss gets a minimal bunker
+    if(this.level%3!==0) this.createShields(); else this.createBossShields();
     // Player shield visual
     this.shieldSprite=this.add.image(this.player.x,this.player.y,'shieldRing').setVisible(false).setDepth(3);
     this.initStars();
@@ -146,10 +187,20 @@ class GameScene extends Phaser.Scene{
     const rows=Math.min(4+Math.floor((this.level-1)/2),6), cols=10, x0=100, y0=80;
     const types=['alien1','alien2','alien3'];
     for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
-      const t=types[r%types.length]; const a=this.aliens.create(x0+c*60, y0+r*50, t); a.setImmovable(true); a.type=t; a.health=(t==='alien3'?2:1);
+      const t=types[r%types.length];
+      const a=this.aliens.create(x0+c*60, y0+r*50, t);
+      a.setImmovable(true);
+      a.type=t;
+      a.health=(t==='alien3'?2:1);
+      a._homeY = a.y; // remember nominal row height for smooth recovery after dives
     }
     this.aliensTotal=rows*cols; this.alienDir=1; this.alienTimer=0; this.alienMoveDelay=Math.max(200,1000-(this.level-1)*100);
     this.alienShootTimer=this.time.now+800; this.isBossFight=false;
+    // Barrage stream control: insert periodic breaks to avoid no-escape streams
+    this.alienStreamCount = 0;
+    this.alienBreakAfterN = Phaser.Math.Between(4,7);
+    // Divers: schedule first dive (less frequent)
+    this.diverNextAt = this.time.now + Phaser.Math.Between(2600, 4200);
     this.time.delayedCall(0,()=>this.setupColliders());
   }
 
@@ -211,8 +262,52 @@ class GameScene extends Phaser.Scene{
   // ---------- Shields ----------
   createShields(){
     this.shields.clear(true,true);
-    const bases=[160,400,640];
-    bases.forEach(bx=>{ for(let r=0;r<4;r++) for(let c=0;c<8;c++){ if(r===3&&(c<2||c>5)) continue; const x=bx+(c-4)*14, y=500+r*10; const block=this.shields.create(x,y,'shieldBlock'); block.hp=2; }});
+    // Hard mode: fewer bunkers as levels progress
+    let bases=[];
+    if(this.level<=2) bases=[240,560];
+    else if(this.level<=4) bases=[400];
+    else bases=[]; // from level 5+, no shields
+    if(!bases.length) return;
+    // Build bunkers slightly higher and with larger central gaps; blocks have 1 HP
+    bases.forEach(bx=>{
+      for(let r=0;r<4;r++){
+        for(let c=0;c<8;c++){
+          // Bigger central gap in all rows
+          if(c===3 || c===4) continue;
+          // Trim bottom corners for a classic bunker shape
+          if(r===3 && (c<2 || c>5)) continue;
+          const x=bx+(c-4)*14;
+          const y=470+r*10; // 30px higher than before
+          const block=this.shields.create(x,y,'shieldBlock');
+          block.hp=2;
+        }
+      }
+    });
+  }
+
+  // Minimal shields for boss fights: one small fragile center bunker
+  createBossShields(){
+    this.shields.clear(true,true);
+    const buildBunker=(bx,rows,cols)=>{
+      for(let r=0;r<rows;r++){
+        for(let c=0;c<cols;c++){
+          // Central gaps (wider for larger bunker)
+          if((cols===8 && (c===3 || c===4)) || (cols===6 && (c===2 || c===3))) continue;
+          // Trim bottom corners
+          if(r===rows-1){
+            if((cols===8 && (c<2 || c>5)) || (cols===6 && (c===0 || c===cols-1))) continue;
+          }
+          const x = bx + (c - (cols/2)) * 14;
+          const y = 470 + r*10;
+          const block=this.shields.create(x,y,'shieldBlock');
+          block.hp=2;
+        }
+      }
+    };
+    // Center large bunker + two smaller side bunkers for more cover
+    buildBunker(400, 4, 8);
+    buildBunker(240, 3, 6);
+    buildBunker(560, 3, 6);
   }
 
   // ---------- Level flow ----------
@@ -250,8 +345,12 @@ class GameScene extends Phaser.Scene{
       this.resetForNextLevel();
       this.level++; this.levelText.setText('Level: '+this.level);
       if(this.level%3===0) {
+        // Boss levels: spawn minimal shields
+        this.createBossShields();
         this.createBoss(); 
       } else {
+        // Non-boss levels: regenerate shields using hard-mode layout
+        this.createShields();
         this.createAlienGrid();
       }
       // Ensure colliders are re-established for new groups
@@ -266,8 +365,15 @@ class GameScene extends Phaser.Scene{
   resetForNextLevel(){
     // Clear bullets (player + alien)
     this.clearBullets && this.clearBullets();
-    // Remove any remaining powerups
-    if(this.powerups){ this.powerups.children.each(p=>{ if(p&&p.destroy) p.destroy(); }); }
+    // Remove any remaining powerups (and their aura emitters + labels)
+    if(this.powerups){
+      this.powerups.children.each(p=>{
+        if(!p) return;
+        try{ if(p._aura){ p._aura.stop&&p._aura.stop(); const em=p._aura; this.time.delayedCall(0, ()=>{ try{ em.remove&&em.remove(); }catch(e){} }); p._aura=null; } }catch(e){}
+        try{ if(p._label){ p._label.destroy(); p._label=null; } }catch(e){}
+        if(p.destroy) p.destroy();
+      });
+    }
     // Hide/clear shield visuals + powerup timers
     if(this.shieldSprite) this.shieldSprite.setVisible(false);
     this.doubleUntil=0; this.spreadUntil=0; this.rapidUntil=0; this.shieldUntil=0; this.shieldHits=0;
@@ -284,6 +390,19 @@ class GameScene extends Phaser.Scene{
     if(this._colliders){ this._colliders.forEach(c=>{ try{ c.destroy(); }catch(e){} }); this._colliders=[]; }
     // Reset combo between levels
     this.resetCombo();
+    // Cleanup any lingering one-shot particle bursts
+    if(this._tempBursts){
+      try{ this._tempBursts.forEach(m=>{ try{ m&&m.destroy&&m.destroy(); }catch(e){} }); }catch(e){}
+      this._tempBursts = [];
+    }
+    // Clear all powerup aura emitters and kill any active particles
+    try{
+      if(this.powerupAura){
+        const mgr=this.powerupAura;
+        try{ mgr.emitters.each(e=>{ try{ e.stop&&e.stop(); e.remove&&e.remove(); }catch(_){} }); }catch(_){ }
+        try{ mgr.clear&&mgr.clear(); }catch(_){ }
+      }
+    }catch(e){}
   }
 
   // ---------- Colliders ----------
@@ -299,6 +418,11 @@ class GameScene extends Phaser.Scene{
   // ---------- Update ----------
   update(time, delta){
     const now = this.time.now;
+    // Safety: force-hide any Arcade debug overlay that might have been toggled
+    try{
+      const w=this.physics&&this.physics.world; const g=w&&w.debugGraphic;
+      if(w && (w.drawDebug || (g&&g.visible))){ w.drawDebug=false; if(g){ g.clear(); g.setVisible(false); } }
+    }catch(e){}
     // Derive countdown state strictly from the on-screen label
     try{
       const label = (this.infoText && this.infoText.text) || '';
@@ -326,6 +450,21 @@ class GameScene extends Phaser.Scene{
     }
     // Keep shield sprite aligned
     if(this.shieldSprite) this.shieldSprite.setPosition(this.player.x,this.player.y).setVisible((this.shieldHits||0)>0 && (this.time.now<(this.shieldUntil||0)));
+    // Update powerup labels + despawn off-screen (and cleanup aura/label)
+    if(this.powerups){
+      try{
+        const t=this.time.now;
+        this.powerups.children.each(p=>{
+          if(!p) return;
+          if(p.active && p._label){ const bob=Math.sin((t/350)+(p._labelPhase||0))*2; p._label.setPosition(p.x, p.y-18+bob); }
+          if(p.active && p.y>620){
+            try{ if(p._aura){ p._aura.stop&&p._aura.stop(); const em=p._aura; this.time.delayedCall(400, ()=>{ try{ em.remove&&em.remove(); }catch(e){} }); p._aura=null; } }catch(e){}
+            try{ if(p._label){ p._label.destroy(); p._label=null; } }catch(e){}
+            p.destroy();
+          }
+        });
+      }catch(e){}
+    }
     // Firing with power-ups
     const rapid = this.time.now < (this.rapidUntil||0);
     const dbl   = this.time.now < (this.doubleUntil||0);
@@ -404,8 +543,114 @@ class GameScene extends Phaser.Scene{
 
     // Aliens movement + shooting when not boss
     if(!this.isBossFight && this.aliens && this.aliens.countActive(true)>0){
-      this.alienTimer+=delta; const alive=this.aliens.countActive(true), total=this.aliensTotal||alive; const speedFactor=Phaser.Math.Linear(1,0.4,1-(alive/total)); const targetDelay=Math.max(120,this.alienMoveDelay*speedFactor); if(this.alienTimer>=targetDelay){ this.alienTimer=0; let hitEdge=false; this.aliens.getChildren().forEach(a=>{ if(!a.active) return; a.x+=10*this.alienDir; if(a.x>=770||a.x<=30) hitEdge=true; }); if(hitEdge){ this.alienDir*=-1; this.aliens.getChildren().forEach(a=>{ if(a.active) a.y+=20; if(a.y>520) this.gameOver('Invaders reached the base!'); }); } }
-      if(time>(this.alienShootTimer||0)){ const active=this.aliens.getChildren().filter(a=>a.active); if(active.length){ const src=Phaser.Utils.Array.GetRandom(active); const b=this.alienBullets.get(); if(b){ b.fire(src.x,src.y+20,300,'bossBullet'); b.owner='alien'; } const base=Phaser.Math.Clamp(1200-(this.level-1)*100,400,1200); const mult=Phaser.Math.Linear(1,0.6,1-(active.length/(this.aliensTotal||active.length))); this.alienShootTimer=time+Math.max(220,Math.floor(base*mult)); } }
+      this.alienTimer+=delta;
+      const alive=this.aliens.countActive(true), total=this.aliensTotal||alive;
+      const frac = alive/total;
+      const speedFactor=Phaser.Math.Linear(1,0.35,1-frac);
+      const targetDelay=Math.max(110,this.alienMoveDelay*speedFactor);
+      // Spawn divers periodically (less often)
+      if(time > (this.diverNextAt||0)){
+        const pool = this.aliens.getChildren().filter(a=>a.active && !a._diving);
+        if(pool.length){
+          // Usually 1 diver; occasional second diver
+          const pickCount = 1 + ((pool.length>1 && Math.random()<0.25)?1:0);
+          for(let i=0;i<pickCount;i++){
+            const a = Phaser.Utils.Array.RemoveRandomElement(pool) || null; if(!a) break;
+            a._diving = true;
+            a._diveStart = time;
+            // Aim roughly towards player
+            const dx = (this.player? (this.player.x - a.x) : 0);
+            a._dvx = Phaser.Math.Clamp(dx*0.45, -220, 220);
+            a._dvy = Phaser.Math.Between(160, 230);
+            a._diveDur = Phaser.Math.Between(900, 1400);
+          }
+        }
+        // Next dive window later to reduce frequency overall
+        this.diverNextAt = time + Phaser.Math.Between(2600, 4200);
+      }
+      // Update grid step and divers
+      if(this.alienTimer>=targetDelay){
+        this.alienTimer=0; let hitEdge=false;
+        this.aliens.getChildren().forEach(a=>{
+          if(!a.active) return;
+          if(a._diving){ return; }
+          a.x+=14*this.alienDir; if(a.x>=770||a.x<=30) hitEdge=true;
+        });
+        if(hitEdge){
+          this.alienDir*=-1;
+          this.aliens.getChildren().forEach(a=>{
+            if(!a.active || a._diving) return;
+            a.y+=28;
+            // keep each alien's homeY in sync with the formation descent
+            if(typeof a._homeY==='number') a._homeY += 28;
+            if(a.y>520) this.gameOver('Invaders reached the base!');
+          });
+        }
+      }
+      // Per-frame diver motion and recovery
+      this.aliens.getChildren().forEach(a=>{
+        if(!a.active) return;
+        const dt = delta/1000;
+        if(a._diving){
+          // Dive motion with slight tracking
+          const track = this.player? Phaser.Math.Clamp((this.player.x - a.x)*0.2, -140, 140) : 0;
+          a.x += (a._dvx + track)*dt; a.y += a._dvy*dt;
+          if( (time - (a._diveStart||0)) > (a._diveDur||1200) || a.y>=520 ){
+            // Smooth recovery: clear diving, then lerp back to homeY over time
+            a._diving=false; a._recovering=true; a._dvx=0; a._dvy=0; a._diveStart=0;
+          }
+        } else if(a._recovering){
+          // Ease back toward nominal row height without snapping
+          const home = (typeof a._homeY==='number') ? a._homeY : a.y;
+          // simple exponential approach
+          a.y = Phaser.Math.Linear(a.y, home, Math.min(1, dt*3.0));
+          if(Math.abs(a.y - home) < 1.5){ a.y = home; a._recovering = false; }
+        }
+      });
+      // Barrage: increase firing cadence and shoot multiple when endgame (<30% alive)
+      if(time>(this.alienShootTimer||0)){
+        const active=this.aliens.getChildren().filter(a=>a.active);
+        if(active.length){
+          const endgame = frac < 0.3;
+          const shooters = endgame ? Math.min(3, active.length) : 1;
+          for(let i=0;i<shooters;i++){
+            const src=Phaser.Utils.Array.GetRandom(active);
+            const b=this.alienBullets.get(); if(!b) continue;
+            const vy = 300 + (endgame? 60:0);
+            b.fire(src.x, src.y+20, vy, 'alienBullet'); b.owner='alien';
+            // Light aiming to pressure the player
+            if(this.player){ b.setVelocityX(Phaser.Math.Clamp((this.player.x - src.x)*0.6, -220, 220)); }
+            // Visual polish: subtle trail only (keep bullet in normal blend to avoid square halos)
+            try{
+              if(b._trail){ b._trail.stop&&b._trail.stop(); b._trail.remove&&b._trail.remove(); }
+              b._trail = this.add.particles(0,0,'soft',{
+                follow: b, speed:{min:10,max:30}, lifespan:180, quantity:1, frequency:40,
+                scale:{start:0.8,end:0}, alpha:{start:0.35,end:0}, tint:0xffaa00, blendMode:'ADD'
+              });
+            }catch(e){}
+          }
+          const base=Phaser.Math.Clamp(900-(this.level-1)*110,220,900);
+          const mult=Phaser.Math.Linear(1,0.55,1-frac) * (endgame? 0.65:1.0);
+          let nextDelay = Math.max(200, Math.floor(base*mult));
+          // Insert small breathing gaps to allow escapes from corners
+          if(endgame){
+            this.alienStreamCount = (this.alienStreamCount||0) + 1;
+            // After several volleys, force a brief break
+            if(this.alienStreamCount >= (this.alienBreakAfterN||5)){
+              nextDelay += Phaser.Math.Between(320, 620);
+              this.alienStreamCount = 0;
+              this.alienBreakAfterN = Phaser.Math.Between(4,7);
+            } else if(Math.random() < 0.18){
+              // Occasional micro-pause even within a stream
+              nextDelay += Phaser.Math.Between(180, 360);
+            }
+          } else {
+            // Reset stream counter when not in barrage phase
+            this.alienStreamCount = 0;
+          }
+          this.alienShootTimer = time + nextDelay;
+        }
+      }
     }
 
     // Boss logic
@@ -450,9 +695,25 @@ class GameScene extends Phaser.Scene{
       // Fire
       if(time>(this.bossFireTimer||0)){
         const pattern=(Math.floor(time/2000)%2);
-        if(pattern===0){ for(let i=-1;i<=1;i++){ const b=this.alienBullets.get(); if(!b) continue; const vy=(this.bossBulletSpeedBase||280)+Math.abs(i)*40; b.fire(this.boss.x+i*12,this.boss.y+40,vy,'bossBullet'); b.owner='alien'; } const base=Phaser.Math.Between(800,1100); this.bossFireTimer=time+Math.max(300,Math.floor(base*(this.bossFireScale||1))); }
-        else { for(let i=-2;i<=2;i++){ const b=this.alienBullets.get(); if(!b) continue; const vy=(this.bossBulletSpeedBase||300); b.fire(this.boss.x,this.boss.y+40,vy,'bossBullet'); b.owner='alien'; b.setVelocityX(i*120); } const base=Phaser.Math.Between(1000,1300); this.bossFireTimer=time+Math.max(350,Math.floor(base*(this.bossFireScale||1))); }
-        if(this.bossIsEnraged){ for(let k=-3;k<=3;k++){ const b2=this.alienBullets.get(); if(!b2) continue; b2.fire(this.boss.x,this.boss.y+36,(this.bossBulletSpeedBase||320)+Phaser.Math.Between(0,60),'bossBullet'); b2.owner='alien'; b2.setVelocityX(k*80+Phaser.Math.Between(-20,20)); } }
+         if(pattern===0){
+           for(let i=-1;i<=1;i++){
+             const b=this.alienBullets.get(); if(!b) continue; const vy=(this.bossBulletSpeedBase||280)+Math.abs(i)*40;
+             b.fire(this.boss.x+i*12, this.boss.y+40, vy, 'alienBullet'); b.owner='alien';
+           }
+           const base=Phaser.Math.Between(800,1100); this.bossFireTimer=time+Math.max(300,Math.floor(base*(this.bossFireScale||1)));
+         } else {
+           for(let i=-2;i<=2;i++){
+             const b=this.alienBullets.get(); if(!b) continue; const vy=(this.bossBulletSpeedBase||300);
+             b.fire(this.boss.x, this.boss.y+40, vy, 'alienBullet'); b.owner='alien'; b.setVelocityX(i*120);
+           }
+           const base=Phaser.Math.Between(1000,1300); this.bossFireTimer=time+Math.max(350,Math.floor(base*(this.bossFireScale||1)));
+         }
+         if(this.bossIsEnraged){
+           for(let k=-3;k<=3;k++){
+             const b2=this.alienBullets.get(); if(!b2) continue;
+             b2.fire(this.boss.x,this.boss.y+36,(this.bossBulletSpeedBase||320)+Phaser.Math.Between(0,60),'alienBullet'); b2.owner='alien'; b2.setVelocityX(k*80+Phaser.Math.Between(-20,20));
+           }
+         }
       }
       // Random mode retarget: wide vs narrow sweep bands
       if(!this.bossNextRetargetAt) this.bossNextRetargetAt = time + 3500;
@@ -535,17 +796,82 @@ class GameScene extends Phaser.Scene{
   }
   
   // Drop power-ups sometimes
-  dropPowerup(x,y){ const tRand=Math.random(); let type='double'; if(tRand<0.25) type='spread'; else if(tRand<0.5) type='rapid'; else if(tRand<0.65) type='shield'; const p=this.powerups.create(x,y,'powerup'); p.setVelocity(0, Phaser.Math.Between(120,160)); p.setBounce(0.3).setCollideWorldBounds(true); p.setData('type', type); const tintMap={double:0x00ffff, spread:0xffaa00, rapid:0xff00ff, shield:0x00ffaa}; p.setTint(tintMap[type]||0xffffff); }
+  dropPowerup(x,y){
+    const tRand=Math.random(); let type='double';
+    if(tRand<0.25) type='spread'; else if(tRand<0.5) type='rapid'; else if(tRand<0.65) type='shield';
+    const p=this.powerups.create(x,y,'powerup');
+    p.setVelocity(0, Phaser.Math.Between(140,180));
+    p.setBounce(0).setCollideWorldBounds(false);
+    p.setData('type', type);
+    const tintMap={double:0x00ffff, spread:0xffaa00, rapid:0xff00ff, shield:0x00ffaa};
+    const tint=tintMap[type]||0xffffff;
+    p.setTint(tint);
+    p.setDepth(6);
+    p.setBlendMode(Phaser.BlendModes.ADD);
+    // Make it clearly not an alien: smaller orb, spin and gentle pulse
+    p.setScale(0.9);
+    try{ p.setAngularVelocity(120); }catch(e){}
+    this.tweens.add({targets:p, scale:{from:0.85,to:1.15}, duration:520, yoyo:true, repeat:-1, ease:'Sine.InOut'});
+    // Neon aura using shared manager emitter
+    try{
+      if(this.powerupAura){
+        const em = this.powerupAura.createEmitter({
+          follow: p,
+          speed:{min:10,max:30},
+          lifespan: 500,
+          quantity: 1,
+          frequency: 120,
+          scale:{start:1.0,end:0},
+          alpha:{start:0.8,end:0},
+          tint
+        });
+        p._aura = em;
+      }
+    }catch(e){}
+
+    // UI-like tag above the orb to clarify type
+    try{
+      const labelMap = { double:'2X', spread:'SPR', rapid:'RPD', shield:'SHD' };
+      const colorMap = { double:'#00ffff', spread:'#ffaa00', rapid:'#ff00ff', shield:'#00ffaa' };
+      const txt = labelMap[type]||'PWR';
+      const col = colorMap[type]||'#ffffff';
+      const tag = this.add.text(p.x, p.y-18, txt, { fontFamily:'monospace', fontSize:'12px', color: col })
+        .setOrigin(0.5).setDepth(7);
+      try{ tag.setStroke('#000000', 3); }catch(e){}
+      p._label = tag; p._labelPhase = Math.random()*Math.PI*2;
+    }catch(e){}
+  }
 
   hitPlayer(player, bullet){ bullet.setActive(false).setVisible(false); if(this.time.now<(this.playerInvincibleUntil||0)) return; // shield absorbs
     // Ignore all hits during countdowns/level transitions/gameover
     if(this.isCountingDown || this.inLevelTransition || this.isGameOver || this.isRestarting) return;
-    if((this.shieldHits||0)>0 && this.time.now < (this.shieldUntil||0)){ this.shieldHits--; const burst=this.add.particles(player.x,player.y,'particle',{speed:{min:-120,max:120},lifespan:300,scale:{start:1,end:0},emitting:false,blendMode:'ADD'}); burst.explode(18); Sfx.beep(500,0.08,'triangle',0.03); this.playerInvincibleUntil=this.time.now+300; if(this.shieldHits<=0 && this.shieldSprite) this.shieldSprite.setVisible(false); return; }
+    if((this.shieldHits||0)>0 && this.time.now < (this.shieldUntil||0)){ this.shieldHits--; this.burst(player.x,player.y,'particle',{speed:{min:-120,max:120},lifespan:300,scale:{start:1,end:0}},18,500); Sfx.beep(500,0.08,'triangle',0.03); this.playerInvincibleUntil=this.time.now+300; if(this.shieldHits<=0 && this.shieldSprite) this.shieldSprite.setVisible(false); return; }
     // Real hit: reset combo
     this.resetCombo();
-    this.lives--; this.livesText.setText('Lives: '+this.lives); const p=this.add.particles(player.x,player.y,'particle',{speed:200, lifespan:600, scale:{start:1.4,end:0}, emitting:false, blendMode:'ADD'}); p.explode(30); Sfx.playerExplosion(); if(this.lives>0){ player.disableBody(true,true); this.time.delayedCall(900,()=>{ player.enableBody(true,400,550,true,true); this.playerInvincibleUntil=this.time.now+1500; player.setAlpha(0.35);             this.tweens.add({targets:player, alpha:{from:0.35,to:1}, yoyo:true, duration:120, repeat:10, onComplete:()=>{ player.setAlpha(1.0); }}); }); } else this.gameOver('You have been defeated!'); }
+    this.lives--; this.livesText.setText('Lives: '+this.lives); this.burst(player.x,player.y,'particle',{speed:200, lifespan:600, scale:{start:1.4,end:0}},30,800); Sfx.playerExplosion(); if(this.lives>0){ player.disableBody(true,true); this.time.delayedCall(900,()=>{ player.enableBody(true,400,550,true,true); this.playerInvincibleUntil=this.time.now+1500; player.setAlpha(0.35);             this.tweens.add({targets:player, alpha:{from:0.35,to:1}, yoyo:true, duration:120, repeat:10, onComplete:()=>{ player.setAlpha(1.0); }}); }); } else this.gameOver('You have been defeated!'); }
 
-  hitShield(bullet, block){ if(!block||!block.active) return; if(bullet.owner==='player' && bullet.passShieldUntil && this.time.now<bullet.passShieldUntil) return; if(bullet.disableBody) bullet.disableBody(true,true); bullet.setActive(false).setVisible(false); block.hp=(block.hp||1)-1; if(block.hp<=0) block.destroy(); else { block.setTint(0x00ffff); this.time.delayedCall(80,()=>block.clearTint()); } }
+  hitShield(bullet, block){
+    if(!block||!block.active) return;
+    // Let freshly fired player bullets pass for a brief window
+    if(bullet.owner==='player' && bullet.passShieldUntil && this.time.now<bullet.passShieldUntil) return;
+    if(bullet.disableBody) bullet.disableBody(true,true);
+    bullet.setActive(false).setVisible(false);
+    block.hp=(block.hp||1)-1;
+    if(block.hp<=0) block.destroy(); else { block.setTint(0x00ffff); this.time.delayedCall(80,()=>block.clearTint()); }
+    // Hard mode: alien splash damage erodes nearby blocks
+    if(bullet.owner==='alien' && this.shields && this.shields.children){
+      const splash=16;
+      try{
+        this.shields.children.each(s=>{
+          if(!s||!s.active||s===block) return;
+          if(Math.abs(s.x-block.x)<=splash && Math.abs(s.y-block.y)<=splash){
+            s.hp=(s.hp||1)-1;
+            if(s.hp<=0) s.destroy(); else { s.setTint(0x00ffff); this.time.delayedCall(80,()=>{ if(s&&s.clearTint) s.clearTint(); }); }
+          }
+        });
+      }catch(e){}
+    }
+  }
 
   hitBoss(objA, objB){
     const bullet=(objA&&objA.owner==='player')?objA : (objB&&objB.owner==='player')?objB : null;
@@ -646,6 +972,9 @@ class GameScene extends Phaser.Scene{
   collectPowerup(player,p){
     const t=p.getData('type')||'double';
     const x=player.x, y=player.y-28;
+    // Clean up visual attachments (aura emitter + label) before removing sprite
+    try{ if(p._aura){ p._aura.stop&&p._aura.stop(); const em=p._aura; this.time.delayedCall(0, ()=>{ try{ em.remove&&em.remove(); }catch(e){} }); p._aura=null; } }catch(e){}
+    try{ if(p._label){ p._label.destroy(); p._label=null; } }catch(e){}
     p.destroy();
     if(t==='double'){
       this.doubleUntil=Math.max(this.doubleUntil||0,this.time.now+8000);
@@ -769,13 +1098,22 @@ class GameScene extends Phaser.Scene{
   // Quick afterimage sprite for boss dashes
   spawnBossAfterimage(){ if(!this.boss || !this.boss.active) return; const img=this.add.image(this.boss.x,this.boss.y,'boss').setScale(4,3).setAlpha(0.35).setDepth(4).setTint(0xfff3a0); this.tweens.add({ targets: img, alpha: 0, duration: 200, onComplete: ()=> img.destroy() }); }
 
-  togglePause(){ this.isPaused=!this.isPaused; if(this.isPaused){ this.physics.world.pause(); this.infoText.setText('Paused'); } else { this.physics.world.resume(); this.infoText.setText(''); } }
+  togglePause(){ this.isPaused=!this.isPaused; if(this.isPaused){ this.physics.world.pause(); this.infoText.setText('Paused'); } else { this.physics.world.resume(); this.infoText.setText(''); } this.postTogglePause&&this.postTogglePause(); }
+  // After toggling pause above, also gate long-running emitters to avoid flicker while paused
+  postTogglePause(){
+    const setEmit=(mgr,on)=>{ try{ if(mgr&&mgr.emitters){ mgr.emitters.each(e=>{ if(e) e.on = on; }); } }catch(e){} };
+    const on = !this.isPaused;
+    setEmit(this.starFar,on); setEmit(this.starMid,on); setEmit(this.starNear,on);
+    setEmit(this.bossDashEmitter,on);
+    // Shared aura manager
+    setEmit(this.powerupAura,on);
+  }
   updateMuteText(m){ this.muteText.setText(m?'MUTED':''); }
 
   // ---------- Scoring / Combo / High score helpers ----------
   clearBullets(){
     try{
-      const clean=(b)=>{ if(!b) return; if(b._pierceEmitter){ try{ b._pierceEmitter.stop(); const mgr=b._pierceEmitter.manager||b._pierceEmitter; mgr.destroy&&mgr.destroy(); }catch(e){} b._pierceEmitter=null; } if(b.disableBody) b.disableBody(true,true); b.setActive(false).setVisible(false); };
+      const clean=(b)=>{ if(!b) return; if(b._pierceEmitter){ try{ b._pierceEmitter.stop(); const mgr=b._pierceEmitter.manager||b._pierceEmitter; mgr.destroy&&mgr.destroy(); }catch(e){} b._pierceEmitter=null; } if(b._trail){ try{ b._trail.stop&&b._trail.stop(); b._trail.remove&&b._trail.remove(); }catch(e){} b._trail=null; } if(b.disableBody) b.disableBody(true,true); b.setActive(false).setVisible(false); };
       if(this.playerBullets){ this.playerBullets.children.each(b=>clean(b)); }
       if(this.alienBullets){ this.alienBullets.children.each(b=>clean(b)); }
     }catch(e){}
@@ -856,3 +1194,4 @@ const lbText=this.add.text(listX, lbTitle.y+26, 'Loading leaderboard...', {...t,
 // ---------- Phaser Boot ----------
 const config={ type:Phaser.AUTO, width:800, height:600, backgroundColor:'#000', physics:{ default:'arcade', arcade:{ gravity:{y:0}, debug:false } }, pixelArt:true, scale:{ mode:Phaser.Scale.FIT, autoCenter:Phaser.Scale.CENTER_BOTH }, scene:[StartScene, GameScene] };
 new Phaser.Game(config);
+
