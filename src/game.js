@@ -11,7 +11,10 @@ const Settings = (()=>{
   function setCRT(on){ try{ localStorage.setItem('si_crt', on? '1':'0'); }catch(e){} }
   function applyCRTToDOM(){ try{ const on=getCRT(); const a=document.getElementById('scanlines'); const b=document.getElementById('vignette'); if(a) a.style.display=on? 'block':'none'; if(b) b.style.display=on? 'block':'none'; }catch(e){} }
   function prefersReducedMotion(){ try{ return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){ return false; } }
-  return { getQualityMode, setQualityMode, getCRT, setCRT, applyCRTToDOM, prefersReducedMotion };
+  // Renderer preference: 'auto' | 'webgl' | 'canvas'
+  function getRenderer(){ try{ const v=(localStorage.getItem('si_renderer')||'auto').toLowerCase(); return v; }catch(e){ return 'auto'; } }
+  function setRenderer(v){ try{ localStorage.setItem('si_renderer', (v||'auto').toLowerCase()); }catch(e){} }
+  return { getQualityMode, setQualityMode, getCRT, setCRT, applyCRTToDOM, prefersReducedMotion, getRenderer, setRenderer };
 })();
 
 // ---------- Enhanced SFX + Music ----------
@@ -982,14 +985,18 @@ class GameScene extends Phaser.Scene{
 
   // ---------- Stars ----------
   initStars(){
+    const q = this.getQualityLevel ? this.getQualityLevel() : 0;
+    // Disable starfield entirely on Low quality
+    if(q>=2){ this.starFar=this.starMid=this.starNear=null; return; }
     const add=(tint,speed,lifespan,qty)=> this.add.particles(0,0,'particle',{
       x:{min:0,max:800}, y:0, lifespan, speedY:{min:speed*0.6,max:speed}, scale:{start:0.6,end:0}, alpha:{start:0.3,end:0}, quantity:qty, tint, blendMode:'ADD' });
-    this.starFar=add(0x99ffff,18,6000,2);
-    this.starMid=add(0x55ffff,40,4500,2);
-    this.starNear=add(0x11ffff,90,3200,2);
-    // Occasional shooting star streaks for extra motion parallax
+    const mult = (q===1? 0.6 : 1.0);
+    this.starFar=add(0x99ffff,18*mult,6000,1);
+    this.starMid=add(0x55ffff,40*mult,4500,1);
+    this.starNear=add(0x11ffff,90*mult,3200,1);
+    // Occasional shooting star streaks for extra motion parallax (skip on Medium too)
     try{
-      this.time.addEvent({ delay: 2800, loop: true, callback: ()=>{ if(Math.random()<0.6) this.spawnShootingStar(); } });
+      if(q===0){ this.time.addEvent({ delay: 2800, loop: true, callback: ()=>{ if(Math.random()<0.6) this.spawnShootingStar(); } }); }
     }catch(e){}
   }
 
@@ -1279,20 +1286,37 @@ class GameScene extends Phaser.Scene{
   
   // More defensive countdown: store end time and auto-resume if needed
   startLevelCountdown(){
-    // Only manage the visible label; gating derives from it in update()
-    const seq = [[0,`Level ${this.level}`],[700,'3'],[1400,'2'],[2100,'1'],[2800,'GO!']];
-    seq.forEach(([delay,label])=> this.time.delayedCall(delay,()=>{
-      this.infoText.setText(label);
-      Sfx.beep(800+delay/10,0.06,'square',0.03);
-    }));
-    this.time.delayedCall(3200,()=>{ 
-      this.infoText.setText('');
-      if(this.level%3===0) {
-        Music.play(this, 'boss', 0.25);
-      } else {
-        Music.play(this, this.level % 2 === 0 ? 'level2' : 'level1', 0.25);
-      }
+    // Only manage the visible label; gating derives from countdown timing in update()
+    const q = this.getQualityLevel ? this.getQualityLevel() : 0;
+    const base = (q>=2 ? 250 : 700); // compress countdown on Low
+    const seq = [[0,`Level ${this.level}`],[base,'3'],[base*2,'2'],[base*3,'1'],[base*4,'GO!']];
+    const t0 = Date.now(); this._countdownStartedAt = t0; this._countdownMaxMs = base*5 + 400; this._countdownDone = false;
+    // Gate gameplay immediately until countdown finishes
+    try{ this.countdownEndsAt = this.time.now + base*5; this.lastFired = this.time.now + base*5; }catch(e){ this.countdownEndsAt = 1e12; }
+    // Set initial label immediately to avoid a brief ungated window
+    try{ this.infoText.setText(`Level ${this.level}`); }catch(e){}
+    // Track timers to allow clean skip without stray label updates
+    this._countdownEvents = []; this._countdownTimeouts = [];
+    seq.forEach(([delay,label])=> {
+      // Schedule both Phaser time and a setTimeout as wall‑clock fallback
+      try{ const ev=this.time.delayedCall(delay,()=>{ this.infoText.setText(label); Sfx.beep(800+delay/10,0.06,'square',0.03); }); this._countdownEvents.push(ev); }catch(e){}
+      try{ const id=setTimeout(()=>{ try{ if(this.scene && this.scene.isActive()){ this.infoText.setText(label); } }catch(_){} }, delay); this._countdownTimeouts.push(id); }catch(e){}
     });
+    const finish = ()=>{
+      if(this._countdownDone) return;
+      this._countdownDone = true; this.countdownEndsAt = this.time.now; this.lastFired = this.time.now - 1;
+      // Cancel all pending label updates
+      try{ (this._countdownEvents||[]).forEach(ev=>{ try{ ev && ev.remove && ev.remove(false); }catch(_){} }); }catch(_){}
+      try{ (this._countdownTimeouts||[]).forEach(id=>{ try{ clearTimeout(id); }catch(_){} }); }catch(_){}
+      this._countdownEvents=[]; this._countdownTimeouts=[];
+      this.infoText.setText('');
+      if(this.level%3===0) { Music.play(this, 'boss', 0.25); } else { Music.play(this, this.level % 2 === 0 ? 'level2' : 'level1', 0.25); }
+    };
+    try{ const evEnd=this.time.delayedCall(base*5, finish); this._countdownEvents.push(evEnd); }catch(e){}
+    try{ const idEnd=setTimeout(finish, base*5); this._countdownTimeouts.push(idEnd); }catch(e){}
+    // Allow skipping countdown via input (pointer or Enter — not Space, to avoid conflict with fire)
+    try{ this.input.once('pointerdown', ()=>finish()); }catch(e){}
+    try{ this.input.keyboard.once('keydown-ENTER', ()=>finish()); }catch(e){}
   }
 
   beginNextLevel(){
@@ -1460,17 +1484,15 @@ class GameScene extends Phaser.Scene{
         }
       }
     }catch(e){}
-    // Derive countdown state strictly from the on-screen label
+    // Countdown gating based on timer rather than label text
     try{
-      const label = (this.infoText && this.infoText.text) || '';
-      const counting = (label==='3' || label==='2' || label==='1' || (label && label.startsWith('Level ')));
-      if (this.isCountingDown !== counting){
-        this.isCountingDown = counting;
+      const endsAt = this.countdownEndsAt||0;
+      const was = !!this.isCountingDown;
+      this.isCountingDown = !this._countdownDone && (now < endsAt);
+      if(was && !this.isCountingDown){
         // When countdown just ended, seed enemy timers if needed
-        if (!this.isCountingDown){
-          if (this.isBossFight){ const base=Phaser.Math.Between(800,1100); this.bossFireTimer = now + Math.max(300, Math.floor(base*(this.bossFireScale||1))); }
-          else { this.alienShootTimer = now + 800; }
-        }
+        if (this.isBossFight){ const base=Phaser.Math.Between(800,1100); this.bossFireTimer = now + Math.max(300, Math.floor(base*(this.bossFireScale||1))); }
+        else { this.alienShootTimer = now + 800; }
       }
     }catch(e){}
     // Simple gate: do nothing while counting down or paused
@@ -1769,18 +1791,21 @@ class GameScene extends Phaser.Scene{
             b.fire(src.x, src.y+20, vy, 'alienBullet'); b.owner='alien';
             // Light aiming to pressure the player
             if(this.player){ b.setVelocityX(Phaser.Math.Clamp((this.player.x - src.x)*0.6, -220, 220)); }
-            // Visual polish: subtle trail only (scaled by quality)
+            // Visual polish: subtle trail only (skip on Low to save CPU)
             try{
-              if(b._trail){ b._trail.stop&&b._trail.stop(); b._trail.remove&&b._trail.remove(); }
               const q = this.getQualityLevel ? this.getQualityLevel() : 0; // 0=high,1=med,2=low
-              const freq = q===2? 90 : q===1? 60 : 40;
-              const alphaStart = q===2? 0.18 : q===1? 0.26 : 0.35;
-              const scaleStart = q===2? 0.6 : q===1? 0.7 : 0.8;
-              const life = q===2? 120 : q===1? 150 : 180;
-              b._trail = this.add.particles(0,0,'soft',{
-                follow: b, speed:{min:10,max:30}, lifespan:life, quantity:1, frequency:freq,
-                scale:{start:scaleStart,end:0}, alpha:{start:alphaStart,end:0}, tint:0xffaa00, blendMode:'ADD'
-              });
+              if(q>=2){ if(b._trail){ try{ b._trail.stop&&b._trail.stop(); b._trail.remove&&b._trail.remove(); }catch(_){} b._trail=null; }
+              } else {
+                if(b._trail){ b._trail.stop&&b._trail.stop(); b._trail.remove&&b._trail.remove(); }
+                const freq = q===1? 60 : 40;
+                const alphaStart = q===1? 0.26 : 0.35;
+                const scaleStart = q===1? 0.7 : 0.8;
+                const life = q===1? 150 : 180;
+                b._trail = this.add.particles(0,0,'soft',{
+                  follow: b, speed:{min:10,max:30}, lifespan:life, quantity:1, frequency:freq,
+                  scale:{start:scaleStart,end:0}, alpha:{start:alphaStart,end:0}, tint:0xffaa00, blendMode:'ADD'
+                });
+              }
             }catch(e){}
           }
           const base=Phaser.Math.Clamp(900-(this.level-1)*110,220,900);
@@ -2618,12 +2643,14 @@ class GameScene extends Phaser.Scene{
   applyQuality(v){
     try{
       // Player exhaust
-      if(this.playerExhaustEm){ this.playerExhaustEm.frequency = (v===2? 85 : v===1? 65 : 55); this.playerExhaustEm.lifespan = (v===2? 260 : v===1? 300 : 320); this.playerExhaustEm.alpha = { start:(v===2?0.4:v===1?0.5:0.6), end:0 }; }
+      if(this.playerExhaustEm){ this.playerExhaustEm.frequency = (v===2? 120 : v===1? 65 : 55); this.playerExhaustEm.lifespan = (v===2? 220 : v===1? 300 : 320); this.playerExhaustEm.alpha = { start:(v===2?0.3:v===1?0.5:0.6), end:0 }; this.playerExhaustEm.emitting = (v<2); }
       // Player heat shimmer
-      if(this.playerHeatEm){ this.playerHeatEm.frequency = (v===2? 55 : v===1? 44 : 38); this.playerHeatEm.lifespan = (v===2? 200 : v===1? 230 : 260); this.playerHeatEm.alpha = { start:(v===2?0.18:v===1?0.22:0.25), end:0 }; }
+      if(this.playerHeatEm){ this.playerHeatEm.frequency = (v===2? 80 : v===1? 44 : 38); this.playerHeatEm.lifespan = (v===2? 180 : v===1? 230 : 260); this.playerHeatEm.alpha = { start:(v===2?0.14:v===1?0.22:0.25), end:0 }; try{ this.playerHeatEm.emitting = (v<2); }catch(_){} }
+      // Double-score aura
+      if(this.playerGoldenAuraEm){ try{ this.playerGoldenAuraEm.emitting = false; }catch(_){} }
       // Boss emitters
       if(this.bossDashEmitter && this.bossDashEmitter.emitters){ this.bossDashEmitter.emitters.each(e=>{ if(e){ e.frequency=(v===2?60:v===1?52:45); e.lifespan=(v===2?360:v===1?400:420); }}); }
-      if(this.bossExhaustEm){ this.bossExhaustEm.frequency = (v===2? 140 : v===1? 125 : 110); }
+      if(this.bossExhaustEm){ this.bossExhaustEm.frequency = (v===2? 160 : v===1? 125 : 110); }
       // Boss eye glows (trim on lower quality)
       const eyeVisible = (v<=1);
       if(this.bossEyeL_outer){ this.bossEyeL_outer.setVisible(eyeVisible && v===0); }
@@ -2671,25 +2698,29 @@ const lbText=this.add.text(listX, lbTitle.y+26, 'Loading leaderboard...', {...t,
      else toast('Leaderboard not available.');
    }
  }catch(e){}
-  // Settings UI (quality + CRT overlay) — moved to top-right to avoid overlap
+  // Settings UI (quality + CRT overlay + renderer) — top-right
   try{
     const qModeInit = (Settings.getQualityMode&&Settings.getQualityMode()) || 'auto';
     const crtInit = (Settings.getCRT&&Settings.getCRT());
+    const rendInit = (Settings.getRenderer&&Settings.getRenderer()) || 'auto';
     const x = w - 16; // right padding
-    const qY = 22, crtY = 44;
+    const qY = 22, crtY = 44, rY = 66;
     const qText=this.add.text(x, qY, `Quality: ${String(qModeInit).toUpperCase()} (click)`, {...t,fontSize:'13px',color:'#0ff'})
       .setOrigin(1,0.5).setInteractive({useHandCursor:true});
     const crtText=this.add.text(x, crtY, `CRT: ${crtInit? 'ON':'OFF'} (click)`, {...t,fontSize:'13px',color:'#0ff'})
       .setOrigin(1,0.5).setInteractive({useHandCursor:true});
+    const rText=this.add.text(x, rY, `Renderer: ${rendInit.toUpperCase()} (click)`, {...t,fontSize:'13px',color:'#0ff'})
+      .setOrigin(1,0.5).setInteractive({useHandCursor:true});
     const cycle=(m)=>{ const order=['auto','high','medium','low']; const i=Math.max(0,order.indexOf(m)); return order[(i+1)%order.length]; };
     qText.on('pointerdown', (p,lx,ly,ev)=>{ if(ev&&ev.stopPropagation) ev.stopPropagation(); try{ const cur=(Settings.getQualityMode&&Settings.getQualityMode())||'auto'; const next=cycle(cur); Settings.setQualityMode&&Settings.setQualityMode(next); qText.setText(`Quality: ${next.toUpperCase()} (click)`); toast(`Quality set to ${next.toUpperCase()}`); }catch(e){} });
     crtText.on('pointerdown', (p,lx,ly,ev)=>{ if(ev&&ev.stopPropagation) ev.stopPropagation(); try{ const now=!Settings.getCRT(); Settings.setCRT(now); Settings.applyCRTToDOM&&Settings.applyCRTToDOM(); crtText.setText(`CRT: ${now? 'ON':'OFF'} (click)`); toast(`CRT Overlay ${now? 'ON':'OFF'}`); }catch(e){} });
+    rText.on('pointerdown', (p,lx,ly,ev)=>{ if(ev&&ev.stopPropagation) ev.stopPropagation(); try{ const opts=['auto','webgl','canvas']; const cur=(Settings.getRenderer&&Settings.getRenderer())||'auto'; const idx=Math.max(0,opts.indexOf(cur)); const next=opts[(idx+1)%opts.length]; Settings.setRenderer&&Settings.setRenderer(next); rText.setText(`Renderer: ${next.toUpperCase()} (click)`); toast(`Renderer set to ${next.toUpperCase()}. Reload to apply.`); }catch(e){} });
   }catch(e){}
  this.add.text(w/2,h/2+10,'Press SPACE or TAP to start',{...t,fontSize:'18px'}).setOrigin(0.5); this.add.text(w/2,h/2+40,'Controls: <- -> move, Space fire, P pause, M mute',{...t,fontSize:'16px',color:'#bbb'}).setOrigin(0.5); this.input.keyboard.once('keydown-SPACE',()=>this.scene.start('GameScene')); this.input.once('pointerdown',()=>this.scene.start('GameScene')); } }
 
 // ---------- Phaser Boot ----------
 const config={
-  type:Phaser.AUTO,
+  type:(()=>{ try{ const r=Settings.getRenderer&&Settings.getRenderer(); if(r==='webgl') return Phaser.WEBGL; if(r==='canvas') return Phaser.CANVAS; return Phaser.AUTO; }catch(e){ return Phaser.AUTO; } })(),
   width:800,
   height:600,
   backgroundColor:'#000',

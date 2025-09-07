@@ -160,6 +160,7 @@ self.FIREBASE_APPCHECK_DEBUG_TOKEN = 'YOUR_DEBUG_TOKEN';
 - Audio doesn’t play: interact with the page first (click/keypress). Serve over HTTP (not file://). iOS Safari requires a user gesture to start audio.
 - Black or empty canvas: browser may have WebGL disabled. The game falls back to Canvas; update graphics drivers, enable hardware acceleration, or set Quality to Low and disable CRT overlay on the Start screen.
 - Low FPS or stutter: set Quality to Low and turn off CRT overlay. Close other heavy tabs/apps. Ensure your browser’s hardware acceleration is enabled.
+- Very old laptops: on the Start screen, click Renderer until it shows CANVAS, then reload; also set Quality to Low and CRT OFF. This disables some GPU paths that can stall on old drivers.
 - Leaderboard not loading: replace the demo `window.FIREBASE_CONFIG` with your own, enable Anonymous Auth, set App Check site key, and check DevTools console for errors. If fails, the game still runs without the leaderboard.
 - Opening files directly: use a local server (see Run Locally). Some browsers restrict audio or module imports from file://.
 - Mobile tips: audio starts after first tap; keyboard controls aren’t available. Consider using on-screen controls if you add them.
