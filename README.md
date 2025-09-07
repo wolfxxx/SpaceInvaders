@@ -1,16 +1,17 @@
-# Modern Space Invaders (Phaser 3)
+# Modern Space Invaders (Phaser 3)
 
-Just for fun and education. A fast, modern take on the arcade classic built with Phaser 3. Battle waves of invaders, face periodic boss fights, stack a combo multiplier, charge up a piercing shot, and chase a persistent high score — all with crunchy SFX and adaptive music.
+A fast, modern take on the arcade classic built with Phaser 3. Battle waves of invaders, face periodic boss fights, stack a combo multiplier, charge up a piercing shot, and chase a persistent high score — all with crunchy SFX and music.
 
 ## Features
 - Arcade action: smooth movement, snappy shots, destructible shields, starfield backdrop.
-- Waves and boss fights: a boss appears every 3rd level with patterns, dashes, and phases.
-- Combo multiplier: chain kills to raise a time‑based multiplier (up to x5) with on‑screen popups.
+- Waves and boss fights: boss every 3rd level; 3 boss variants with evolving patterns, dashes, and phases.
+- Combo multiplier: chain kills to raise a timed multiplier (up to x5) with on‑screen popups.
 - Overcharge (piercing) shot: damage the boss to fill a charge bar; unleash a magenta pierce round when full.
 - Extra life reward: defeating a boss grants +1 life with a celebratory effect.
 - Powerups: Double, Spread, Rapid, Shield (wave levels).
-- HUD and persistence: score, lives, level, “Best” high score saved to localStorage.
-- Audio: WebAudio SFX, level/boss music, volume slider, and SFX mute toggle.
+- HUD and persistence: score, lives, level, and “Best” high score saved to localStorage.
+- Audio: Procedural WebAudio SFX, level/boss music, volume slider, and SFX mute toggle.
+- Quality & accessibility: adaptive quality scaler (Auto/High/Medium/Low) and CRT overlay toggle.
 
 ## Controls
 - Move: Left/Right Arrow keys
@@ -23,9 +24,9 @@ Just for fun and education. A fast, modern take on the arcade classic built with
 ## Run Locally
 Because the game loads audio files, use a local web server (file:// may block audio in some browsers):
 
-- Python (3.x): `python -m http.server -d src 5173`
+- Python (3.x): `python -m http.server 5173 --directory src`
 - Node: `npx http-server src -p 5173`
-- VS Code: Live Server on the `src/` folder
+- VS Code: Live Server on the `src/` folder
 
 Then open http://localhost:5173
 
@@ -43,45 +44,28 @@ Two simple options:
 
 ## Project Structure
 - `src/index.html` — HTML shell, Phaser CDN, canvas styling, volume slider
-- `src/game.js` — core game (scenes, entities, waves, boss, scoring, powerups)
+- `src/game.js` — core game (scenes, entities, waves, bosses, scoring, powerups)
+- `src/leaderboard.js` — lightweight Firebase client for global scores (optional)
 - `src/music.js` — music loader and simple volume control
 - `src/assets/music/*.mp3` — level and boss music tracks
 
-## Screenshots / GIF
-- Add gameplay GIFs/screenshots to a `docs/` folder and link them here.
-- Example (once added):
-  - `![Gameplay](docs/gameplay.gif)`
-
-## Firebase Setup — Quick Checklist
-
-- Create Firebase project
-  - Firestore Database → Create database (Production mode)
-  - Authentication → Sign‑in method → Enable Anonymous
-- App Check (reCAPTCHA v3)
-  - reCAPTCHA Admin → Create v3 key with Domains: your GitHub Pages host (e.g., `yourname.github.io`) and optionally `localhost`, `127.0.0.1` for local dev
-  - Firebase Console → App Check → Your Web app → reCAPTCHA v3 → Use existing key → paste Site + Secret
-- Add config in the app (before `leaderboard.js`)
-  - Put your web config in `index.html` (root, for Pages) and `src/index.html` (for local dev) under `window.FIREBASE_CONFIG`
-  - Set `window.FIREBASE_APPCHECK_SITE_KEY = '...'` in both files
-- Local dev (optional): debug token
-  - Add `self.FIREBASE_APPCHECK_DEBUG_TOKEN = 'YOUR_DEBUG_TOKEN'` to `src/local-dev.js` (this file is ignored by Git)
-  - App Check → Debug tokens → Add the same token string
-- Firestore rules: publish the rules from this README (see below)
-- Enforce App Check after you see “Verified” in App Check → Requests
-- Verify quickly in DevTools on your page:
-  - `await window.LeaderboardReady`
-  - `await window.Leaderboard.getTop10()`
+## Quality & CRT Settings
+- Quality modes: Auto, High, Medium, Low.
+  - Auto monitors FPS and adjusts visuals to keep 60 FPS; it scales particles/trails and trims some glow layers at lower levels.
+  - The game respects “prefers‑reduced‑motion” by starting at a lower quality in Auto on such systems.
+- CRT overlay: toggle scanlines and vignette on/off.
+- Where: on the Start screen (top‑right) you can click the labels to change these settings.
+- Persistence: stored in localStorage keys `si_quality` and `si_crt`.
 
 ## Global Leaderboard (optional)
 This project includes a simple Firebase Firestore leaderboard suitable for GitHub Pages.
 
 Enable it
-- In `index.html` (root) or `src/index.html`, paste your Firebase web config in the `window.FIREBASE_CONFIG` block and uncomment the two leaderboard script tags:
-  - `window.FIREBASE_CONFIG = { apiKey, authDomain, projectId }`
-  - `<script type="module" src="leaderboard.js"></script>`
+- In `index.html` (root) and `src/index.html`, replace the demo Firebase web config in the `window.FIREBASE_CONFIG` block with your own.
+- The leaderboard script tag is already included; remove it if you want to disable the leaderboard.
 - Create a Firestore DB in your Firebase project.
-- Optional but recommended: enable Anonymous Auth in Authentication.
- - Optional but recommended: enable App Check for Web (reCAPTCHA v3) and set `window.FIREBASE_APPCHECK_SITE_KEY`.
+- Recommended: enable Anonymous Auth in Authentication.
+- Recommended: enable App Check for Web (reCAPTCHA v3) and set `window.FIREBASE_APPCHECK_SITE_KEY`.
 
 Firestore rules (starter, permissive read / restricted write)
 ```
@@ -101,7 +85,7 @@ service cloud.firestore {
 ```
 
 How it works
-- On Game Over, you're prompted for a name; score is submitted if the leaderboard is enabled.
+- On Game Over, you’re prompted for a name; score is submitted if the leaderboard is enabled.
 - Start screen shows the Top 10 (name, score, date).
 
 ### App Check (recommended)
@@ -167,14 +151,34 @@ self.FIREBASE_APPCHECK_DEBUG_TOKEN = 'YOUR_DEBUG_TOKEN';
 - Optionally remove `localhost`/`127.0.0.1` from your reCAPTCHA v3 Domains
 - Keep Firestore enforcement ON and rules restrictive as above
 
-App Check (recommended)
-- Firebase Console → Build → App Check → Add app → Web → choose reCAPTCHA v3 → copy the site key.
-- In `index.html`, set `window.FIREBASE_APPCHECK_SITE_KEY = '...';`.
-- In Firestore, enforce App Check for read/write once verified.
+## Performance Notes
+- Phaser config targets 60 FPS with a 30 FPS minimum; device pixel ratio is capped to reduce overdraw on high‑DPI displays.
+- WebGL is preferred; Canvas fallback works automatically via `Phaser.AUTO`.
+- On Low quality, cosmetic effects are reduced for smoother performance on low‑end GPUs/CPUs.
 
+## Troubleshooting
+- Audio doesn’t play: interact with the page first (click/keypress). Serve over HTTP (not file://). iOS Safari requires a user gesture to start audio.
+- Black or empty canvas: browser may have WebGL disabled. The game falls back to Canvas; update graphics drivers, enable hardware acceleration, or set Quality to Low and disable CRT overlay on the Start screen.
+- Low FPS or stutter: set Quality to Low and turn off CRT overlay. Close other heavy tabs/apps. Ensure your browser’s hardware acceleration is enabled.
+- Leaderboard not loading: replace the demo `window.FIREBASE_CONFIG` with your own, enable Anonymous Auth, set App Check site key, and check DevTools console for errors. If fails, the game still runs without the leaderboard.
+- Opening files directly: use a local server (see Run Locally). Some browsers restrict audio or module imports from file://.
+- Mobile tips: audio starts after first tap; keyboard controls aren’t available. Consider using on-screen controls if you add them.
+
+## Screenshots / GIFs
+- Add media to `docs/` and reference from the README. Example:
+
+  ```md
+  ![Gameplay](docs/gameplay.gif)
+  ```
+
+- Quick capture tip (desktop): record a short MP4 (OBS), then convert to a web-friendly GIF or MP4 snippet.
+  - Example ffmpeg to GIF:
+    ```
+    ffmpeg -i clip.mp4 -vf "fps=30,scale=800:-1:flags=lanczos" -t 8 docs/gameplay.gif
+    ```
 
 ## Audio Credits
-Tracks sourced from Pixabay (free for use, no attribution required — included here for courtesy):
+Tracks sourced from Pixabay (free for use, attribution not required — included here for courtesy):
 - Level 1 music by UFO‑Man — https://pixabay.com/music/techno-trance-space-invaders-13809/
 - Level 2 music by MaxKoMusic — https://pixabay.com/music/epic-cinematic-the-last-stand-13886/
 - Boss music by WinnieTheMoog — https://pixabay.com/music/video-games-epic-boss-battle-15242/
@@ -183,12 +187,6 @@ Tracks sourced from Pixabay (free for use, no attribution required — included 
 - Phaser 3 (via CDN)
 - JavaScript (no build step)
 - WebAudio API for procedural SFX
-
-## Roadmap / Ideas
-- Touch controls and gamepad support
-- Options pause menu (music/SFX sliders, restart)
-- Enemy variety (divers, tanks) and level scripting
-- GitHub Pages root build (optional) and screenshots/GIFs for the README
 
 ## License
 No license provided — treat as “all rights reserved” unless a LICENSE file is added. Music assets are credited above per their Pixabay listings.

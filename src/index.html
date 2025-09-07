@@ -43,6 +43,18 @@
   <script type="module" src="leaderboard.js"></script>
   <div id="scanlines"></div>
   <div id="vignette"></div>
+  <script>
+    (function(){
+      try{
+        var v = localStorage.getItem('si_crt');
+        var on = (v===null) ? true : v==='1';
+        var a = document.getElementById('scanlines');
+        var b = document.getElementById('vignette');
+        if(a) a.style.display = on? 'block':'none';
+        if(b) b.style.display = on? 'block':'none';
+      }catch(e){}
+    })();
+  </script>
   <div id="volume-control" style="position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:100;">
     <label for="volume" style="color:#fff; font-family:monospace; margin-right:10px;">Volume:</label>
     <input type="range" id="volume" name="volume" min="0" max="100" value="50">

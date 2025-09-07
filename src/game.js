@@ -1,6 +1,19 @@
 ﻿// Modern Space Invaders — rebuilt compact version (gameplay restored)
 // Notes: One-file game logic to keep changes traceable. No external assets.
 
+// ---------- Settings / Quality Utilities ----------
+const Settings = (()=>{
+  function getQualityMode(){
+    try{ return localStorage.getItem('si_quality') || 'auto'; }catch(e){ return 'auto'; }
+  }
+  function setQualityMode(m){ try{ localStorage.setItem('si_quality', String(m||'auto')); }catch(e){} }
+  function getCRT(){ try{ const v=localStorage.getItem('si_crt'); return v===null? true : v==='1'; }catch(e){ return true; } }
+  function setCRT(on){ try{ localStorage.setItem('si_crt', on? '1':'0'); }catch(e){} }
+  function applyCRTToDOM(){ try{ const on=getCRT(); const a=document.getElementById('scanlines'); const b=document.getElementById('vignette'); if(a) a.style.display=on? 'block':'none'; if(b) b.style.display=on? 'block':'none'; }catch(e){} }
+  function prefersReducedMotion(){ try{ return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){ return false; } }
+  return { getQualityMode, setQualityMode, getCRT, setCRT, applyCRTToDOM, prefersReducedMotion };
+})();
+
 // ---------- Enhanced SFX + Music ----------
 const Sfx = (() => {
   let ac, musicGain, muted = false;
@@ -862,6 +875,11 @@ class GameScene extends Phaser.Scene{
       this._playerGoldenOffset = { x:0, y: 0 };
     }catch(e){}
 
+    // Initialize quality settings (auto or saved)
+    try{ this.initQuality && this.initQuality(); }catch(e){}
+    // Apply CRT overlay preference
+    try{ Settings.applyCRTToDOM(); }catch(e){}
+
     // HUD
     const f={ fontFamily:'monospace', fontSize:'18px', color:'#fff' };
     this.score=0; this.lives=3; this.level=1; this.combo=0; this.comboMult=1;
@@ -1152,13 +1170,20 @@ class GameScene extends Phaser.Scene{
         console.log('Double score active:', doubleScoreActive, 'Time left:', (this.doubleScoreUntil - this.time.now));
       }
       
-      // Golden screen tint effect - much more visible
+      // Golden screen tint effect (scaled by quality)
       if(this.goldenTint) {
+        const q = this.getQualityLevel ? this.getQualityLevel() : 0; // 0=high,1=med,2=low
         if(doubleScoreActive) {
           this.goldenTint.setVisible(true);
-          // More noticeable pulsing effect
-          const pulse = 0.15 + 0.08 * Math.sin(this.time.now * 0.012);
-          this.goldenTint.setAlpha(pulse);
+          if(q===0){
+            const pulse = 0.15 + 0.08 * Math.sin(this.time.now * 0.012);
+            this.goldenTint.setAlpha(pulse);
+          } else if(q===1){
+            const pulse = 0.10 + 0.04 * Math.sin(this.time.now * 0.012);
+            this.goldenTint.setAlpha(pulse);
+          } else {
+            this.goldenTint.setAlpha(0.06);
+          }
         } else {
           this.goldenTint.setVisible(false);
         }
@@ -1174,14 +1199,21 @@ class GameScene extends Phaser.Scene{
         }
       }
       
-      // Make score text golden and pulsing when double score is active
+      // Make score text golden and pulsing when double score is active (scaled by quality)
       if(this.scoreText) {
+        const q = this.getQualityLevel ? this.getQualityLevel() : 0;
         if(doubleScoreActive) {
           this.scoreText.setColor('#ffd700');
           this.scoreText.setStroke('#ffaa00', 3);
-          // More dramatic pulsing effect
-          const pulse = 1.0 + 0.15 * Math.sin(this.time.now * 0.015);
-          this.scoreText.setScale(pulse);
+          if(q===0){
+            const pulse = 1.0 + 0.15 * Math.sin(this.time.now * 0.015);
+            this.scoreText.setScale(pulse);
+          } else if(q===1){
+            const pulse = 1.0 + 0.06 * Math.sin(this.time.now * 0.015);
+            this.scoreText.setScale(pulse);
+          } else {
+            this.scoreText.setScale(1.0);
+          }
         } else {
           this.scoreText.setColor('#fff');
           this.scoreText.setStroke('#00ffaa', 1);
@@ -1407,6 +1439,27 @@ class GameScene extends Phaser.Scene{
     
     // Update double score visual effects every frame
     this.updateDoubleScoreEffects();
+    // Adaptive quality auto-scaler (when in auto mode)
+    try{
+      if(this._qualityAuto){
+        this._fpsAccum = (this._fpsAccum||0) + (delta||0);
+        this._fpsCount = (this._fpsCount||0) + 1;
+        this._fpsWindowMs = (this._fpsWindowMs||0) + (delta||0);
+        if(this._fpsWindowMs >= 1000){
+          const avgMs = this._fpsAccum / Math.max(1, this._fpsCount);
+          const fps = 1000 / Math.max(1e-3, avgMs);
+          const nowMs = this.time.now|0;
+          // Thresholds with hysteresis
+          if(fps < 50){ this._lowTimer = (this._lowTimer||0) + this._fpsWindowMs; this._highTimer = 0; }
+          else if(fps > 58){ this._highTimer = (this._highTimer||0) + this._fpsWindowMs; this._lowTimer = 0; }
+          else { this._lowTimer = 0; this._highTimer = 0; }
+          const canChange = (nowMs - (this._lastQualityChangeAt||0)) > 4000;
+          if(canChange && (this._lowTimer||0) >= 3000 && (this.qualityLevel|0) < 2){ this.setQualityLevel( (this.qualityLevel|0) + 1 ); this._lastQualityChangeAt = nowMs; this._lowTimer = 0; this._highTimer = 0; }
+          else if(canChange && (this._highTimer||0) >= 6000 && (this.qualityLevel|0) > 0){ this.setQualityLevel( (this.qualityLevel|0) - 1 ); this._lastQualityChangeAt = nowMs; this._lowTimer = 0; this._highTimer = 0; }
+          this._fpsAccum = 0; this._fpsCount = 0; this._fpsWindowMs = 0;
+        }
+      }
+    }catch(e){}
     // Derive countdown state strictly from the on-screen label
     try{
       const label = (this.infoText && this.infoText.text) || '';
@@ -1716,12 +1769,17 @@ class GameScene extends Phaser.Scene{
             b.fire(src.x, src.y+20, vy, 'alienBullet'); b.owner='alien';
             // Light aiming to pressure the player
             if(this.player){ b.setVelocityX(Phaser.Math.Clamp((this.player.x - src.x)*0.6, -220, 220)); }
-            // Visual polish: subtle trail only (keep bullet in normal blend to avoid square halos)
+            // Visual polish: subtle trail only (scaled by quality)
             try{
               if(b._trail){ b._trail.stop&&b._trail.stop(); b._trail.remove&&b._trail.remove(); }
+              const q = this.getQualityLevel ? this.getQualityLevel() : 0; // 0=high,1=med,2=low
+              const freq = q===2? 90 : q===1? 60 : 40;
+              const alphaStart = q===2? 0.18 : q===1? 0.26 : 0.35;
+              const scaleStart = q===2? 0.6 : q===1? 0.7 : 0.8;
+              const life = q===2? 120 : q===1? 150 : 180;
               b._trail = this.add.particles(0,0,'soft',{
-                follow: b, speed:{min:10,max:30}, lifespan:180, quantity:1, frequency:40,
-                scale:{start:0.8,end:0}, alpha:{start:0.35,end:0}, tint:0xffaa00, blendMode:'ADD'
+                follow: b, speed:{min:10,max:30}, lifespan:life, quantity:1, frequency:freq,
+                scale:{start:scaleStart,end:0}, alpha:{start:alphaStart,end:0}, tint:0xffaa00, blendMode:'ADD'
               });
             }catch(e){}
           }
@@ -2553,6 +2611,35 @@ class GameScene extends Phaser.Scene{
     return this.comboMult>prev;
   }
   resetCombo(){ this.combo=0; this.comboMult=1; this.comboExpireAt=0; if(this.comboText) this.comboText.setText(''); }
+  
+  // ---------- Quality management ----------
+  getQualityLevel(){ return this.qualityLevel|0; }
+  setQualityLevel(level){ try{ const v=Math.max(0,Math.min(2,level|0)); if(this.qualityLevel===v) return; this.qualityLevel=v; this.applyQuality(v); }catch(e){} }
+  applyQuality(v){
+    try{
+      // Player exhaust
+      if(this.playerExhaustEm){ this.playerExhaustEm.frequency = (v===2? 85 : v===1? 65 : 55); this.playerExhaustEm.lifespan = (v===2? 260 : v===1? 300 : 320); this.playerExhaustEm.alpha = { start:(v===2?0.4:v===1?0.5:0.6), end:0 }; }
+      // Player heat shimmer
+      if(this.playerHeatEm){ this.playerHeatEm.frequency = (v===2? 55 : v===1? 44 : 38); this.playerHeatEm.lifespan = (v===2? 200 : v===1? 230 : 260); this.playerHeatEm.alpha = { start:(v===2?0.18:v===1?0.22:0.25), end:0 }; }
+      // Boss emitters
+      if(this.bossDashEmitter && this.bossDashEmitter.emitters){ this.bossDashEmitter.emitters.each(e=>{ if(e){ e.frequency=(v===2?60:v===1?52:45); e.lifespan=(v===2?360:v===1?400:420); }}); }
+      if(this.bossExhaustEm){ this.bossExhaustEm.frequency = (v===2? 140 : v===1? 125 : 110); }
+      // Boss eye glows (trim on lower quality)
+      const eyeVisible = (v<=1);
+      if(this.bossEyeL_outer){ this.bossEyeL_outer.setVisible(eyeVisible && v===0); }
+      if(this.bossEyeR_outer){ this.bossEyeR_outer.setVisible(eyeVisible && v===0); }
+      if(this.bossEyeL){ this.bossEyeL.setVisible(eyeVisible); }
+      if(this.bossEyeR){ this.bossEyeR.setVisible(eyeVisible); }
+      if(this.bossEyeL_core){ this.bossEyeL_core.setVisible(eyeVisible && v===0); }
+      if(this.bossEyeR_core){ this.bossEyeR_core.setVisible(eyeVisible && v===0); }
+    }catch(e){}
+  }
+  initQuality(){
+    try{
+      const mode = Settings.getQualityMode(); this.qualityMode = mode; let lvl=0; if(mode==='high') lvl=0; else if(mode==='medium') lvl=1; else if(mode==='low') lvl=2; else { lvl = Settings.prefersReducedMotion()? 2 : 0; }
+      this.qualityLevel = lvl; this._qualityAuto = (mode==='auto'); this._fpsAccum=0; this._fpsCount=0; this._fpsWindowMs=0; this._lowTimer=0; this._highTimer=0; this._lastQualityChangeAt=0; this.applyQuality(lvl);
+    }catch(e){}
+  }
 }
 
 // ---------- Start Scene ----------
@@ -2584,8 +2671,37 @@ const lbText=this.add.text(listX, lbTitle.y+26, 'Loading leaderboard...', {...t,
      else toast('Leaderboard not available.');
    }
  }catch(e){}
+  // Settings UI (quality + CRT overlay) — moved to top-right to avoid overlap
+  try{
+    const qModeInit = (Settings.getQualityMode&&Settings.getQualityMode()) || 'auto';
+    const crtInit = (Settings.getCRT&&Settings.getCRT());
+    const x = w - 16; // right padding
+    const qY = 22, crtY = 44;
+    const qText=this.add.text(x, qY, `Quality: ${String(qModeInit).toUpperCase()} (click)`, {...t,fontSize:'13px',color:'#0ff'})
+      .setOrigin(1,0.5).setInteractive({useHandCursor:true});
+    const crtText=this.add.text(x, crtY, `CRT: ${crtInit? 'ON':'OFF'} (click)`, {...t,fontSize:'13px',color:'#0ff'})
+      .setOrigin(1,0.5).setInteractive({useHandCursor:true});
+    const cycle=(m)=>{ const order=['auto','high','medium','low']; const i=Math.max(0,order.indexOf(m)); return order[(i+1)%order.length]; };
+    qText.on('pointerdown', (p,lx,ly,ev)=>{ if(ev&&ev.stopPropagation) ev.stopPropagation(); try{ const cur=(Settings.getQualityMode&&Settings.getQualityMode())||'auto'; const next=cycle(cur); Settings.setQualityMode&&Settings.setQualityMode(next); qText.setText(`Quality: ${next.toUpperCase()} (click)`); toast(`Quality set to ${next.toUpperCase()}`); }catch(e){} });
+    crtText.on('pointerdown', (p,lx,ly,ev)=>{ if(ev&&ev.stopPropagation) ev.stopPropagation(); try{ const now=!Settings.getCRT(); Settings.setCRT(now); Settings.applyCRTToDOM&&Settings.applyCRTToDOM(); crtText.setText(`CRT: ${now? 'ON':'OFF'} (click)`); toast(`CRT Overlay ${now? 'ON':'OFF'}`); }catch(e){} });
+  }catch(e){}
  this.add.text(w/2,h/2+10,'Press SPACE or TAP to start',{...t,fontSize:'18px'}).setOrigin(0.5); this.add.text(w/2,h/2+40,'Controls: <- -> move, Space fire, P pause, M mute',{...t,fontSize:'16px',color:'#bbb'}).setOrigin(0.5); this.input.keyboard.once('keydown-SPACE',()=>this.scene.start('GameScene')); this.input.once('pointerdown',()=>this.scene.start('GameScene')); } }
 
 // ---------- Phaser Boot ----------
-const config={ type:Phaser.AUTO, width:800, height:600, backgroundColor:'#000', physics:{ default:'arcade', arcade:{ gravity:{y:0}, debug:false } }, pixelArt:false, antialias:true, antialiasGL:true, scale:{ mode:Phaser.Scale.FIT, autoCenter:Phaser.Scale.CENTER_BOTH }, scene:[StartScene, GameScene] };
+const config={
+  type:Phaser.AUTO,
+  width:800,
+  height:600,
+  backgroundColor:'#000',
+  physics:{ default:'arcade', arcade:{ gravity:{y:0}, debug:false } },
+  pixelArt:false,
+  antialias:true,
+  antialiasGL:true,
+  scale:{ mode:Phaser.Scale.FIT, autoCenter:Phaser.Scale.CENTER_BOTH },
+  // Performance tuning
+  fps:{ target:60, min:30 },
+  resolution: Math.min(window.devicePixelRatio||1, 1.5),
+  render:{ powerPreference:'high-performance', roundPixels:false },
+  scene:[StartScene, GameScene]
+};
 new Phaser.Game(config);
